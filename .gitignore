@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# exclude output files
+recv/*
+send/*
+testbin/*
+.vscode/*

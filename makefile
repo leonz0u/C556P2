@@ -7,10 +7,10 @@ CFLAGS = -g -Wall
 all: recvfile sendfile
 
 sendfile: sendfile.cpp
-	$(CC) $(CFLAGS) -o sendfile sendfile.cpp
+	$(CC) $(CFLAGS) -o ./send/sendfile sendfile.cpp
 
 recvfile: recvfile.cpp
-	$(CC) $(CFLAGS) -o recvfile recvfile.cpp
+	$(CC) $(CFLAGS) -o ./recv/recvfile recvfile.cpp
 
 clean:
-	rm -f recvfile sendfile
+	rm -f ./send/sendfile ./recv/recvfile
