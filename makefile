@@ -13,4 +13,4 @@ recvfile: recvfile.cpp
 	$(CC) $(CFLAGS) -o ./recv/recvfile recvfile.cpp
 
 clean:
-	rm -f ./send/sendfile ./recv/recvfile
+	rm -f ./sendfile ./recvfile ./send/sendfile ./recv/recvfile
