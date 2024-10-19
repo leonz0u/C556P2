@@ -313,7 +313,7 @@ void RFTPSender::sendFile()
 {
     int seqBegin = 0;
     int segmentsNum = 0;
-    int maxAck = 0;
+    int maxAck = -1;
     int totalWindowSize = min(cwnd, rwnd);
     int usedWindowSize = 0;
     int remainingFileSize = fileSize;
@@ -323,7 +323,7 @@ void RFTPSender::sendFile()
     struct timeval tv;
     tv.tv_sec = timeout_s;
     tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
-    struct timeval t1, t2;
+    // struct timeval t1, t2;
     // set the socket
     bool finished = false;
     while (!finished)
@@ -356,7 +356,7 @@ void RFTPSender::sendFile()
                     cerr << "Error: Sending Packet failed!" << endl;
                     continue;
                 }
-                cout << "Sent packet with sequence number: " << senderBuffer[(seqBegin + i) % senderBuffer.size()].seqNumber << endl;
+                cout << "Sent packet with sequence number: " << seqBegin + i << endl;
             }
             usedWindowSize += segmentsNum;
         }
@@ -396,7 +396,16 @@ void RFTPSender::sendFile()
         {
             // timeout
             cout << "Timeout!" << endl;
-            //retransmit the packets
+            //retransmit the packets in the window
+            for (int i = 0; i < usedWindowSize; ++i)
+            {
+                if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
+                {
+                    cerr << "Error: Sending Packet failed!" << endl;
+                    continue;
+                }
+                cout << "Retransmitted packet with sequence number: " << seqBegin + i << endl;
+            }
             usedWindowSize = 0;
             seqBegin = maxAck + 1;
             remainingFileSize = fileSize - seqBegin * maxPayloadSize;
