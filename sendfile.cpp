@@ -170,9 +170,11 @@ bool RFTPSender::sendPacket(RFTPPacket &packet)
     int no = sendto(senderSocket, &packet, sizeof(packet), 0, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress));
     if (no < 0)
     {
-        cerr << "Error: Sending Packet failed!" << endl;
         return false;
     }
+    // When sendfile sends a packet (including retransmission), it should print the following: [send data] start (length)
+    // where start is the beginning offset (in byte) of the file sent in the packet, and length (in byte) is the amount of the file sent in that packet.
+    cout << "[send data] start " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ")" << endl;
     return true;
 }
 
@@ -415,6 +417,14 @@ void RFTPSender::sendFile()
             cerr << "Error: Select failed!" << endl;
             continue;
         }
+    }
+    if(finished)
+    {
+        cout << "File sent successfully!" << endl;
+    }
+    else
+    {
+        cerr << "Error: File sending failed!" << endl;
     }
 }
 
