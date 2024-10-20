@@ -20,7 +20,7 @@ const int rwnd = 8;
 // Congestion window size
 const int cwnd = 8;
 // Timeout
-const int timeout_s = 1;
+const int timeout_s = 5;
 const int timeout_ms = 0;
 
 // Structure for the RFTP packet
@@ -65,6 +65,7 @@ public:
     bool openFile(const std::string &subPath, const std::string &filename);
     void closeFile();
     uint16_t calculateChecksum(const RFTPPacket &packet);
+    std::vector<uint8_t> serializePacket(const RFTPPacket& packet);
     bool sendPacket(RFTPPacket &packet);
     void createInfoPacket(RFTPPacket &packet);
     void createSegments(int seqBegin, int segmentsNum, bool isLastPacket, vector<RFTPPacket> &senderBuffer);  
@@ -153,9 +154,13 @@ uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
     sum += packet.ackNumber;
     sum += packet.flags;
     sum += packet.windowSize;
-    for (uint8_t byte : packet.data)
+    //if the data is not empty, calculate the checksum for the data
+    if (!packet.data.empty())
     {
-        sum += byte;
+        for (uint8_t byte : packet.data)
+        {
+            sum += byte;
+        }
     }
     while (sum >> 16)
     {
@@ -164,10 +169,34 @@ uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
     return ~sum;
 }
 
+
+// serialize the packet
+std::vector<uint8_t> RFTPSender::serializePacket(const RFTPPacket& packet)
+{
+    std::vector<uint8_t> buffer;
+    buffer.resize(sizeof(packet.seqNumber) + sizeof(packet.ackNumber) + sizeof(packet.flags) + sizeof(packet.windowSize) + sizeof(packet.checksum) + packet.data.size());
+    size_t offset = 0;
+    memcpy(buffer.data() + offset, &packet.seqNumber, sizeof(packet.seqNumber));
+    offset += sizeof(packet.seqNumber);
+    memcpy(buffer.data() + offset, &packet.ackNumber, sizeof(packet.ackNumber));
+    offset += sizeof(packet.ackNumber);
+    memcpy(buffer.data() + offset, &packet.flags, sizeof(packet.flags));
+    offset += sizeof(packet.flags);
+    memcpy(buffer.data() + offset, &packet.windowSize, sizeof(packet.windowSize));
+    offset += sizeof(packet.windowSize);
+    memcpy(buffer.data() + offset, &packet.checksum, sizeof(packet.checksum));
+    offset += sizeof(packet.checksum);
+    memcpy(buffer.data() + offset, packet.data.data(), packet.data.size());
+    return buffer;
+}
+
 // send the packet
 bool RFTPSender::sendPacket(RFTPPacket &packet)
 {
-    int no = sendto(senderSocket, &packet, sizeof(packet), 0, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress));
+    // serialize the packet
+    std::vector<uint8_t> buffer = serializePacket(packet);
+    int no = sendto(senderSocket, buffer.data(), buffer.size(), 0, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress));
+    // int no = sendto(senderSocket, &packet, sizeof(packet), 0, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress));
     if (no < 0)
     {
         return false;
@@ -478,11 +507,11 @@ int main(int argc, char *argv[])
 
 
     //for local test purpose sendfile -r 128.42.124.187:18105 -f test.txt
-    recvHost = "128.42.124.187";
+    recvHost = "128.42.124.178";
     recvPort = 18105;
     // subdir = "send";
     subdir = ".";
-    filename = "T_11600B.bin";
+    filename = "T_1B.bin";
 
 
     if (recvHost.empty() || recvPort == 0 || filename.empty())
@@ -511,6 +540,7 @@ int main(int argc, char *argv[])
 
     sender.sendFile();
     sender.closeFile();
+    sender.closeSenderSocket();
 
     return 0;
 }
