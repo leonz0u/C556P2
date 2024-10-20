@@ -366,8 +366,8 @@ void RFTPSender::sendFile()
     vector<RFTPPacket> senderBuffer(totalWindowSize);
     // set the retransmission timeout
     struct timeval tv;
-    tv.tv_sec = timeout_s;
-    tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
+    // tv.tv_sec = timeout_s;
+    // tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
     // struct timeval t1, t2;
     // set the socket
     bool finished = false;
@@ -434,6 +434,8 @@ void RFTPSender::sendFile()
             isRetransmit = true;
             seqBegin = maxAck + 1;
             usedWindowSize = usedWindowSize - segmentsNum;
+            tv.tv_sec = timeout_s;
+            tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
             // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
             // gettimeofday(&t2, NULL);
             // tv = calculateTimeout(t1, t2);
