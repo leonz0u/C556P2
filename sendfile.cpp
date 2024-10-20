@@ -238,6 +238,10 @@ int RFTPSender::receiveACK(uint8_t type)
     // information packet ACK type is 01010000
     RFTPPacket ack;
     int no = recvfrom(senderSocket, &ack, sizeof(ack), 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));
+    if (no < 0)
+    {
+        return false;
+    }    
     // validate the ACK using Checksum
     if(ack.checksum != calculateChecksum(ack))
     {

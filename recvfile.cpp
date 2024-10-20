@@ -21,6 +21,9 @@ using namespace std;
 // 全局变量
 const int maxPayloadSize = 1450; // 每个数据包的最大有效载荷大小（字节）
 const int rwnd = 8;               // 接收窗口大小
+const int cwnd = 8;
+const int timeout_s = 1;
+const int timeout_ms = 0;
 
 // RFTP 数据包结构体
 struct RFTPPacket
@@ -30,8 +33,9 @@ struct RFTPPacket
     uint8_t flags;               // 标志位
     uint16_t windowSize;         // 窗口大小
     uint16_t checksum;           // 校验和
-    char data[maxPayloadSize];   // 数据载荷
-    uint16_t dataLength;         // 数据长度
+    std::vector<uint8_t> data; // 数据载荷
+    // char data[maxPayloadSize];   // 数据载荷
+    // uint16_t data.size();         // 数据长度
 };
 
 // RFTP 接收端类
@@ -42,12 +46,16 @@ private:
     struct sockaddr_in senderAddress;   // 发送端地址结构
     int receiverSocket;                 // 套接字描述符
     std::ofstream file;                 // 文件输出流
+    int fileSize;
+    std::string subdir;
+    std::string filename;    
     uint32_t totalBytesReceived;        // 总接收字节数
     std::chrono::steady_clock::time_point startTime; // 传输开始时间
 
 public:
     RFTPReceiver();                      // 构造函数
     void initReceiverSocket(int portNumber); // 初始化接收端套接字
+    // setSenderAddress?
     bool openFile(const std::string &subPath, const std::string &filename); // 打开接收文件
     void closeFile();                    // 关闭文件
     bool receivePacket(RFTPPacket &packet); // 接收数据包
@@ -82,11 +90,11 @@ void RFTPReceiver::initReceiverSocket(int portNumber)
 
     //**************************************************************************************************//
     // 绑定套接字到接收端地址 应该需要检查 但是一直报错 先注释掉
-    /*if (bind(receiverSocket, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress)) < 0)
+    if (bind(receiverSocket, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress)) < 0)
     {
         cerr << "Error: Binding failed!" << endl;
         exit(1);
-    }*/
+    }
     //**************************************************************************************************//
 }
 
@@ -162,18 +170,20 @@ bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
 // 将数据块写入文件
 void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
 {
-    file.write(packet.data, packet.dataLength); // 写入数据
-    totalBytesReceived += packet.dataLength;    // 更新总接收字节数
+    file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size()); // 写入数据
+    totalBytesReceived += packet.data.size();    // 更新总接收字节数
 }
 
 // 发送确认包
 void RFTPReceiver::sendAck(uint32_t ackNumber)
 {
     RFTPPacket ackPacket;              // 创建一个确认包
-    memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
+    // memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
+    ackPacket.seqNumber = 0;     // 设置序列号为 0
     ackPacket.ackNumber = ackNumber;   // 设置确认号
     ackPacket.flags = 0x10;            // 设置 ACK 标志位
-    ackPacket.windowSize = rwnd;        // 设置窗口大小
+    ackPacket.windowSize = rwnd;        // 设置窗口大小 
+    ackPacket.data.clear();             // 清空数据部分
     ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
     
     // 发送确认包到发送端
@@ -188,11 +198,11 @@ uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
     sum += packet.ackNumber;         // 累加确认号
     sum += packet.flags;             // 累加标志位
     sum += packet.windowSize;        // 累加窗口大小
-    sum += packet.dataLength;        // 累加数据长度
+    // sum += packet.data.size();        // 累加数据长度
     // 累加数据载荷
-    for(int i = 0; i < packet.dataLength; ++i)
+    for (uint8_t byte : packet.data)
     {
-        sum += static_cast<uint8_t>(packet.data[i]);
+        sum += byte;
     }
     // 处理进位
     while (sum >> 16)
@@ -233,7 +243,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (port == 0)
+    if (port == -1)
     {
         cerr << "Usage: " << argv[0] << " -p <port>" << endl;
         return 1;
@@ -261,7 +271,7 @@ int main(int argc, char *argv[]) {
             if (packet.flags & 0x40)
             {
                 // 解析目录名和文件名
-                std::string fileInfo(packet.data, packet.dataLength);
+                std::string fileInfo(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
                 size_t slash_pos = fileInfo.find('/');
                 if (slash_pos == std::string::npos)
                 {
@@ -278,8 +288,8 @@ int main(int argc, char *argv[]) {
                 }
 
                 // 发送 ACK 确认信息包
-                receiver.sendAck(packet.seqNumber + 1);
-                cout << "[recv data] 0 (" << packet.dataLength << ") ACCEPTED(in-order)" << endl;
+                receiver.sendAck(packet.seqNumber);
+                cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
 
                 break; // 信息包处理完毕，进入数据传输阶段
             }
@@ -300,70 +310,73 @@ int main(int argc, char *argv[]) {
         if (lastPacketReceived)
         {
             // 如果已接收到最后一个包，等待一段时间后退出
-            bool timeout = true;
+            // bool timeout = true;
             if (receiver.receivePacketWithTimeout(packet, 2)) // 等待 2 秒
             {
-                // 接收到新的包，可能是重传的最后一个包
-                uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
-                if (calculatedChecksum != packet.checksum)
-                {
-                    cout << "[recv corrupt packet]" << endl;
-                    continue;
-                }
-
-                if (!(packet.flags & 0x40))
-                {
-                    if (packet.seqNumber == expectedSeqNumber)
-                    {
-                        // 接收到期望的包，写入文件
-                        receiver.writeFileChunk(packet);
-                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") ACCEPTED(in-order)" << endl;
-                        expectedSeqNumber++;
-
-                        // 检查缓冲区中是否有连续的包可以写入
-                        while (bufferMap.find(expectedSeqNumber) != bufferMap.end())
-                        {
-                            RFTPPacket bufferedPacket = bufferMap[expectedSeqNumber];
-                            receiver.writeFileChunk(bufferedPacket);
-                            cout << "[recv data] " << bufferedPacket.seqNumber * maxPayloadSize << " (" << bufferedPacket.dataLength << ") ACCEPTED(in-order)" << endl;
-                            bufferMap.erase(expectedSeqNumber); // 移除已写入的包
-                            expectedSeqNumber++;
-                        }
-
-                        // 发送累计 ACK
-                        receiver.sendAck(expectedSeqNumber);
-                    }
-                    else if (packet.seqNumber > expectedSeqNumber && packet.seqNumber < expectedSeqNumber + rwnd)
-                    {
-                        // 接收到的包在滑动窗口内且为乱序包
-                        if (bufferMap.find(packet.seqNumber) == bufferMap.end())
-                        {
-                            bufferMap[packet.seqNumber] = packet; // 存入缓冲区
-                            cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") ACCEPTED(out-of-order)" << endl;
-                        }
-
-                        // 发送累计 ACK
-                        receiver.sendAck(expectedSeqNumber);
-                    }
-                    else
-                    {
-                        // 接收到重复包或超出窗口的包，忽略并重新发送 ACK
-                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") IGNORED" << endl;
-                        receiver.sendAck(expectedSeqNumber);
-                    }
-
-                    // 检查是否为最后一个包（标志位 0x04）
-                    if (packet.flags & 0x04)
-                    {
-                        // 确保所有包都已接收
-                        if (bufferMap.empty())
-                        {
-                            cout << "[completed]" << endl; // 打印完成消息
-                            break; // 结束传输
-                        }
-                    }
-                }
+                receiver.sendAck(packet.seqNumber);
             }
+            // {
+            //     // 接收到新的包，可能是重传的最后一个包
+            //     uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
+            //     if (calculatedChecksum != packet.checksum)
+            //     {
+            //         cout << "[recv corrupt packet]" << endl;
+            //         continue;
+            //     }
+
+            //     if (!(packet.flags & 0x40))
+            //     {
+            //         if (packet.seqNumber == expectedSeqNumber)
+            //         {
+            //             // 接收到期望的包，写入文件
+            //             receiver.writeFileChunk(packet);
+            //             cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
+            //             expectedSeqNumber++;
+
+            //             // 检查缓冲区中是否有连续的包可以写入
+            //             while (bufferMap.find(expectedSeqNumber) != bufferMap.end())
+            //             {
+            //                 RFTPPacket bufferedPacket = bufferMap[expectedSeqNumber];
+            //                 receiver.writeFileChunk(bufferedPacket);
+            //                 cout << "[recv data] " << bufferedPacket.seqNumber * maxPayloadSize << " (" << bufferedPacket.data.size() << ") ACCEPTED(in-order)" << endl;
+            //                 bufferMap.erase(expectedSeqNumber); // 移除已写入的包
+            //                 expectedSeqNumber++;
+            //             }
+
+            //             // 发送累计 ACK
+            //             receiver.sendAck(expectedSeqNumber-1);
+            //         }
+            //         else if (packet.seqNumber > expectedSeqNumber && packet.seqNumber < expectedSeqNumber + rwnd)
+            //         {
+            //             // 接收到的包在滑动窗口内且为乱序包
+            //             if (bufferMap.find(packet.seqNumber) == bufferMap.end())
+            //             {
+            //                 bufferMap[packet.seqNumber] = packet; // 存入缓冲区
+            //                 cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") ACCEPTED(out-of-order)" << endl;
+            //             }
+
+            //             // 发送累计 ACK
+            //             receiver.sendAck(expectedSeqNumber-1);
+            //         }
+            //         else
+            //         {
+            //             // 接收到重复包或超出窗口的包，忽略并重新发送 ACK
+            //             cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
+            //             receiver.sendAck(expectedSeqNumber-1);
+            //         }
+
+            //         // 检查是否为最后一个包（标志位 0x04）
+            //         if (packet.flags & 0x04)
+            //         {
+            //             // 确保所有包都已接收
+            //             if (bufferMap.empty())
+            //             {
+            //                 cout << "[completed]" << endl; // 打印完成消息
+            //                 break; // 结束传输
+            //             }
+            //         }
+            //     }
+            // }
             else
             {
                 // 超时，认为传输完成
@@ -390,7 +403,7 @@ int main(int argc, char *argv[]) {
                     {
                         // 接收到期望的包，写入文件
                         receiver.writeFileChunk(packet);
-                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") ACCEPTED(in-order)" << endl;
+                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
                         expectedSeqNumber++; // 更新期望序列号
 
                         // 检查缓冲区中是否有连续的包可以写入
@@ -398,13 +411,13 @@ int main(int argc, char *argv[]) {
                         {
                             RFTPPacket bufferedPacket = bufferMap[expectedSeqNumber];
                             receiver.writeFileChunk(bufferedPacket);
-                            cout << "[recv data] " << bufferedPacket.seqNumber * maxPayloadSize << " (" << bufferedPacket.dataLength << ") ACCEPTED(in-order)" << endl;
+                            cout << "[recv data] " << bufferedPacket.seqNumber * maxPayloadSize << " (" << bufferedPacket.data.size() << ") ACCEPTED(in-order)" << endl;
                             bufferMap.erase(expectedSeqNumber); // 移除已写入的包
                             expectedSeqNumber++;
                         }
                         
                         // 发送累计 ACK
-                        receiver.sendAck(expectedSeqNumber);
+                        receiver.sendAck(expectedSeqNumber-1);
                     }
                     else if (packet.seqNumber > expectedSeqNumber && packet.seqNumber < expectedSeqNumber + rwnd)
                     {
@@ -412,17 +425,17 @@ int main(int argc, char *argv[]) {
                         if (bufferMap.find(packet.seqNumber) == bufferMap.end())
                         {
                             bufferMap[packet.seqNumber] = packet; // 存入缓冲区
-                            cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") ACCEPTED(out-of-order)" << endl;
+                            cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") ACCEPTED(out-of-order)" << endl;
                         }
                         
                         // 发送累计 ACK
-                        receiver.sendAck(expectedSeqNumber);
+                        receiver.sendAck(expectedSeqNumber-1);
                     }
                     else
                     {
                         // 接收到重复包或超出窗口的包，忽略并重新发送 ACK
-                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.dataLength << ") IGNORED" << endl;
-                        receiver.sendAck(expectedSeqNumber);
+                        cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
+                        receiver.sendAck(expectedSeqNumber-1);
                     }
 
                     // 检查是否为最后一个包（标志位 0x04）
@@ -444,7 +457,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-
+    }
     receiver.closeFile();         // 关闭文件
     receiver.printStatistics();   // 打印传输统计信息
     return 0;                     // 正常退出程序
