@@ -36,7 +36,7 @@ struct RFTPPacket
     // if bit 4 is set, it is an ACK
     // bit 4 is 00010000
     // if bit 2 is set, it is the last packet
-    // bit 2 is 00000010
+    // bit 2 is 00000100
     uint8_t flags;
     // current window size
     uint16_t windowSize;
@@ -150,23 +150,36 @@ void RFTPSender::closeFile()
 uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
 {
     uint32_t sum = 0;
-    sum += packet.seqNumber;
-    sum += packet.ackNumber;
+    // uint32_t seqNumber
+    sum += (packet.seqNumber >> 16) & 0xFFFF;  // High 16 bits
+    sum += packet.seqNumber & 0xFFFF;          // Low 16 bits    
+    // uint32_t ackNumber
+    sum += (packet.ackNumber >> 16) & 0xFFFF;  // High 16 bits
+    sum += packet.ackNumber & 0xFFFF;          // Low 16 bits
+    // uint8_t flags
     sum += packet.flags;
+    // uint16_t windowSize
     sum += packet.windowSize;
     //if the data is not empty, calculate the checksum for the data
     if (!packet.data.empty())
     {
-        for (uint8_t byte : packet.data)
+        // put uint8_t data into uint32_t sum
+        for (size_t i = 0; i < packet.data.size(); i += 2)
         {
-            sum += byte;
+            uint16_t data = packet.data[i];
+            if (i + 1 < packet.data.size())
+            {
+                data = (data << 8) + packet.data[i + 1];
+            }
+            sum += data;
         }
     }
     while (sum >> 16)
     {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
-    return ~sum;
+
+    return static_cast<uint16_t>(~sum & 0xFFFF);
 }
 
 
@@ -230,7 +243,8 @@ void RFTPSender::createSegments(int seqBegin, int segmentsNum, bool isLastPacket
     uint8_t fileContent[segmentsNum * maxPayloadSize];
     file.seekg(seqBegin * maxPayloadSize);
     file.read(reinterpret_cast<char *>(fileContent), segmentsNum * maxPayloadSize);
-    cout << "Read " << file.gcount() << " bytes from file" << endl;
+    int readFileSize = file.gcount();
+    cout << "Read file size: " << readFileSize << endl;
     for (int i = 0; i < segmentsNum; ++i)
     {
         RFTPPacket packet;
@@ -241,13 +255,13 @@ void RFTPSender::createSegments(int seqBegin, int segmentsNum, bool isLastPacket
         packet.data.resize(maxPayloadSize);
         packet.checksum = 0;
         // if it is the last packet, set the bit 2 to 1
-        if (isLastPacket)
+        if (isLastPacket && i == segmentsNum - 1)
         {
             // bit 2 is 00000100
             packet.flags |= 0x04;
-            memcpy(packet.data.data(), fileContent, file.gcount());
-            packet.data.resize(file.gcount());
-            
+            int lastPacketSize = readFileSize - i * maxPayloadSize;
+            memcpy(packet.data.data(), fileContent + i * maxPayloadSize, lastPacketSize);
+            packet.data.resize(lastPacketSize);
         }
         else
         {
@@ -267,10 +281,6 @@ int RFTPSender::receiveACK(uint8_t type)
     // information packet ACK type is 01010000
     RFTPPacket ack;
     int no = recvfrom(senderSocket, &ack, sizeof(ack), 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));
-    if (no < 0)
-    {
-        return false;
-    }    
     // validate the ACK using Checksum
     if(ack.checksum != calculateChecksum(ack))
     {
@@ -318,7 +328,7 @@ bool RFTPSender::sendInfoPacket()
             // receive the ACK for the information packet
             // bit 6 is set to 1
             // bit 4 is set to 1
-            // type is 01010000
+            // the type is 01010000
             int ack = receiveACK(0x50);
             if (ack < 0)
             {
@@ -331,7 +341,7 @@ bool RFTPSender::sendInfoPacket()
         }
         else if (activity == 0)
         {
-            cout << "Timeout!" << endl;
+            cout << "Ack Information packet timeout!" << endl;
             continue;
         }
         else
@@ -361,12 +371,22 @@ void RFTPSender::sendFile()
     // struct timeval t1, t2;
     // set the socket
     bool finished = false;
+    bool isRetransmit = false;
+    int timeoutCount = 0;
     while (!finished)
     {
         // create the list of packets to be sent if the window is not full
         while (usedWindowSize < totalWindowSize && remainingFileSize > 0)
         {
-            if (remainingFileSize < maxPayloadSize)
+            // if it is retransmission, only retransmit the packets in the window
+            // no need to create new packets
+            if(isRetransmit)
+            {
+                //use previous packets
+                timeoutCount++;
+                isRetransmit = false;
+            }
+            else if (remainingFileSize < maxPayloadSize)
             {
                 segmentsNum = 1;
                 createSegments(seqBegin, segmentsNum, true, senderBuffer);
@@ -374,16 +394,19 @@ void RFTPSender::sendFile()
             else
             {
                 segmentsNum = totalWindowSize - usedWindowSize;
-                createSegments(seqBegin, segmentsNum, false, senderBuffer);
-                if(remainingFileSize == maxPayloadSize * segmentsNum)
+                if(remainingFileSize <= maxPayloadSize * segmentsNum)
                 {
                     // set the bit 2 to 1 for the last packet
                     // bit 2 is 00000100
-                    senderBuffer[(seqBegin + segmentsNum - 1) % senderBuffer.size()].flags |= 0x04;
+                    createSegments(seqBegin, segmentsNum, true, senderBuffer);
+                    // senderBuffer[(seqBegin + segmentsNum - 1) % senderBuffer.size()].flags |= 0x04;
+                }
+                else
+                {
+                    createSegments(seqBegin, segmentsNum, false, senderBuffer);
                 }
             }
-            // send the packets
-            // gettimeofday(&t1, NULL);
+            // send the packets in the window
             for (int i = 0; i < segmentsNum; ++i)
             {
                 if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
@@ -403,7 +426,25 @@ void RFTPSender::sendFile()
         FD_SET(senderSocket, &fds);
         int activity = select(senderSocket + 1, &fds, NULL, NULL, &tv);
         //FD_SET(senderSocket, &fds) is used to check if we have received any data from the socket
-        if (activity > 0 && FD_ISSET(senderSocket, &fds))
+        if(activity == 0)
+        {
+            // timeout
+            cout << "Timeout!" << endl;
+            //retransmit the packets in the window
+            isRetransmit = true;
+            seqBegin = maxAck + 1;
+            usedWindowSize = usedWindowSize - segmentsNum;
+            // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
+            // gettimeofday(&t2, NULL);
+            // tv = calculateTimeout(t1, t2);
+            continue;
+        }
+        if(activity < 0)
+        {
+            cerr << "Error: Select failed!" << endl;
+            continue;
+        }
+        if(activity > 0 && FD_ISSET(senderSocket, &fds))
         {
             // receive the ACK
             // bit 4 is set to 1
@@ -416,7 +457,13 @@ void RFTPSender::sendFile()
             }
             cout << "Received ACK: " << ack << endl;
             // update the window size
-            usedWindowSize = max(0, usedWindowSize - (ack - maxAck));
+            // if the ack is not in the window, ignore it
+            if (ack < seqBegin || ack >= seqBegin + totalWindowSize)
+            {
+                continue;
+            }
+            // if the ack is in the window, update the window size
+            usedWindowSize = max(0, usedWindowSize - (ack - seqBegin + 1));
             maxAck = max(maxAck, ack);
             // update the sequence number
             seqBegin = maxAck + 1;
@@ -426,29 +473,6 @@ void RFTPSender::sendFile()
                 finished = true;
                 break;
             }
-        }
-        else if (activity == 0)
-        {
-            // timeout
-            cout << "Timeout!" << endl;
-            //retransmit the packets in the window
-            for (int i = 0; i < usedWindowSize; ++i)
-            {
-                if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
-                {
-                    cerr << "Error: Sending Packet failed!" << endl;
-                    continue;
-                }
-                cout << "Retransmitted packet with sequence number: " << seqBegin + i << endl;
-            }
-            usedWindowSize = 0;
-            seqBegin = maxAck + 1;
-            remainingFileSize = fileSize - seqBegin * maxPayloadSize;
-        }
-        else
-        {
-            cerr << "Error: Select failed!" << endl;
-            continue;
         }
     }
     if(finished)
@@ -508,10 +532,10 @@ int main(int argc, char *argv[])
 
     //for local test purpose sendfile -r 128.42.124.187:18105 -f test.txt
     recvHost = "128.42.124.178";
-    recvPort = 18105;
+    recvPort = 18110;
     // subdir = "send";
     subdir = ".";
-    filename = "T_1B.bin";
+    filename = "test_24MB.bin";
 
 
     if (recvHost.empty() || recvPort == 0 || filename.empty())
