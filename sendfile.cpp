@@ -165,7 +165,7 @@ uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
     {
         // put uint8_t data into uint32_t sum
         int packetDataSize = packet.data.size();
-        for (size_t i = 0; i < packetDataSize; i += 2)
+        for (int i = 0; i < packetDataSize; i += 2)
         {
             uint16_t data = packet.data[i];
             if (i + 1 < packetDataSize)
@@ -229,7 +229,7 @@ void RFTPSender::createInfoPacket(RFTPPacket &packet)
     // set the bit 6 to 1
     // bit 6 is 01000000
     packet.flags |= 0x40;
-    packet.windowSize = 0;
+    packet.windowSize = 8;
     // copy the subdir and filename to the data field
     std::string filename = subdir + "/" + this->filename;
     packet.data.resize(filename.size() + 1);
@@ -281,26 +281,30 @@ int RFTPSender::receiveACK(uint8_t type)
     // last packet ACK type is 00010010
     // information packet ACK type is 01010000
     RFTPPacket ack;
-    int no = recvfrom(senderSocket, &ack, sizeof(ack), 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));
+    int ackSize = sizeof(ack);
+    int no = recvfrom(senderSocket, &ack, ackSize, 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));    
+    // if no is equal to sizeof(ack), return -1
+    // if (no != ackSize){
+    //     return -1;
+    // } 
     // validate the ACK using Checksum
     // uint32_t sum = 0;
     uint64_t sum = 0;
     // uint32_t ackNumber
-    sum += (ack.seqNumber >> 16) & 0xFFFF;  // High 16 bits
-    sum += ack.seqNumber & 0xFFFF;          // Low 16 bits
+    sum += ack.ackNumber;
     // uint8_t flags
     sum += ack.flags;
     // uint16_t windowSize
     sum += ack.windowSize;
     // add sum with the checksum
-    sum += ack.checksum;
+    // sum += ack.checksum;
     // check if has carry
     while (sum >> 16)
     {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
     // if the checksum is not 0xFFFF, the packet is corrupted
-    if (sum != 0xFFFF)
+    if (sum + ack.checksum != 0xFFFF)
     {
         cerr << "Error: The ACK packet is corrupted!" << endl;
         return -1;
@@ -434,7 +438,7 @@ void RFTPSender::sendFile()
                 }
             }
             // send the packets in the window
-            for (int i = 0; i < segmentsNum; ++i)
+            for (int i = 0; i < totalWindowSize; ++i)
             {
                 if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
                 {
