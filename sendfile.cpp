@@ -417,7 +417,9 @@ void RFTPSender::sendFile()
             else if (remainingFileSize < maxPayloadSize)
             {
                 segmentsNum = 1;
-                createSegments(seqBegin, segmentsNum, true, senderBuffer);
+                // createSegments(seqBegin, segmentsNum, true, senderBuffer);
+                // create Segments, start from seqBegin+usedWindowSize
+                createSegments(seqBegin+usedWindowSize, segmentsNum, true, senderBuffer);
             }
             else
             {
@@ -430,15 +432,19 @@ void RFTPSender::sendFile()
                     segmentsNum = (remainingFileSize + maxPayloadSize - 1) / maxPayloadSize;
                     // set the bit 2 to 1 for the last packet
                     // bit 2 is 00000100
-                    createSegments(seqBegin, segmentsNum, true, senderBuffer);
+                    // createSegments(seqBegin, segmentsNum, true, senderBuffer);
+                    // create Segments, start from seqBegin+usedWindowSize
+                    createSegments(seqBegin+usedWindowSize, segmentsNum, true, senderBuffer);
                 }
                 else
                 {
-                    createSegments(seqBegin, segmentsNum, false, senderBuffer);
+                    // create Segments, start from seqBegin+usedWindowSize
+                    createSegments(seqBegin+usedWindowSize, segmentsNum, false, senderBuffer);
                 }
             }
             // send the packets in the window
-            for (int i = 0; i < totalWindowSize; ++i)
+            // from seqBegin to usedWindowSize + segmentsNum
+            for (int i = 0; i < usedWindowSize + segmentsNum; ++i)
             {
                 if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
                 {
