@@ -2,7 +2,7 @@ CC = g++
 #for debug
 CFLAGS = -g -Wall
 #for release
-#CFLAGS = -O2 -Wall
+# CFLAGS = -O3 -Wall
 
 all: recvfile sendfile
 

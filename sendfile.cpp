@@ -20,8 +20,8 @@ const int rwnd = 8;
 // Congestion window size
 const int cwnd = 8;
 // Timeout
-const int timeout_s = 5;
-const int timeout_ms = 0;
+const int timeout_s = 0;
+const int timeout_ms = 500;
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -186,8 +186,8 @@ uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
 // serialize the packet
 std::vector<uint8_t> RFTPSender::serializePacket(const RFTPPacket& packet)
 {
-    std::vector<uint8_t> buffer;
-    buffer.resize(sizeof(packet.seqNumber) + sizeof(packet.ackNumber) + sizeof(packet.flags) + sizeof(packet.windowSize) + sizeof(packet.checksum) + packet.data.size());
+    int bufferSize = sizeof(packet.seqNumber) + sizeof(packet.ackNumber) + sizeof(packet.flags) + sizeof(packet.windowSize) + sizeof(packet.checksum) + packet.data.size();
+    std::vector<uint8_t> buffer(bufferSize);
     size_t offset = 0;
     memcpy(buffer.data() + offset, &packet.seqNumber, sizeof(packet.seqNumber));
     offset += sizeof(packet.seqNumber);
@@ -366,8 +366,8 @@ void RFTPSender::sendFile()
     vector<RFTPPacket> senderBuffer(totalWindowSize);
     // set the retransmission timeout
     struct timeval tv;
-    // tv.tv_sec = timeout_s;
-    // tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
+    tv.tv_sec = timeout_s;
+    tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
     // struct timeval t1, t2;
     // set the socket
     bool finished = false;
@@ -394,12 +394,15 @@ void RFTPSender::sendFile()
             else
             {
                 segmentsNum = totalWindowSize - usedWindowSize;
+                // if the remaining file size is less than the available window size, set the bit 2 to 1 for the last packet
                 if(remainingFileSize <= maxPayloadSize * segmentsNum)
                 {
+                    // improve the calculation of segmentsNum
+                    // segmentsNum = remainingFileSize / maxPayloadSize + (remainingFileSize % maxPayloadSize == 0 ? 0 : 1);
+                    segmentsNum = (remainingFileSize + maxPayloadSize - 1) / maxPayloadSize;
                     // set the bit 2 to 1 for the last packet
                     // bit 2 is 00000100
                     createSegments(seqBegin, segmentsNum, true, senderBuffer);
-                    // senderBuffer[(seqBegin + segmentsNum - 1) % senderBuffer.size()].flags |= 0x04;
                 }
                 else
                 {
@@ -424,6 +427,8 @@ void RFTPSender::sendFile()
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(senderSocket, &fds);
+        tv.tv_sec = timeout_s;
+        tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
         int activity = select(senderSocket + 1, &fds, NULL, NULL, &tv);
         //FD_SET(senderSocket, &fds) is used to check if we have received any data from the socket
         if(activity == 0)
@@ -434,8 +439,6 @@ void RFTPSender::sendFile()
             isRetransmit = true;
             seqBegin = maxAck + 1;
             usedWindowSize = usedWindowSize - segmentsNum;
-            tv.tv_sec = timeout_s;
-            tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
             // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
             // gettimeofday(&t2, NULL);
             // tv = calculateTimeout(t1, t2);
@@ -457,13 +460,13 @@ void RFTPSender::sendFile()
                 cerr << "Error: Receiving ACK failed!" << endl;
                 continue;
             }
-            cout << "Received ACK: " << ack << endl;
-            // update the window size
             // if the ack is not in the window, ignore it
             if (ack < seqBegin || ack >= seqBegin + totalWindowSize)
             {
+                cout << "Received ACK: " << ack << " is not in the window!" << endl;
                 continue;
             }
+            cout << "Received ACK: " << ack << endl;
             // if the ack is in the window, update the window size
             usedWindowSize = max(0, usedWindowSize - (ack - seqBegin + 1));
             maxAck = max(maxAck, ack);
