@@ -164,10 +164,11 @@ uint16_t RFTPSender::calculateChecksum(const RFTPPacket &packet)
     if (!packet.data.empty())
     {
         // put uint8_t data into uint32_t sum
-        for (size_t i = 0; i < packet.data.size(); i += 2)
+        int packetDataSize = packet.data.size();
+        for (size_t i = 0; i < packetDataSize; i += 2)
         {
             uint16_t data = packet.data[i];
-            if (i + 1 < packet.data.size())
+            if (i + 1 < packetDataSize)
             {
                 data = (data << 8) + packet.data[i + 1];
             }
@@ -282,15 +283,34 @@ int RFTPSender::receiveACK(uint8_t type)
     RFTPPacket ack;
     int no = recvfrom(senderSocket, &ack, sizeof(ack), 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));
     // validate the ACK using Checksum
-    if(ack.checksum != calculateChecksum(ack))
+    // uint32_t sum = 0;
+    uint64_t sum = 0;
+    // uint32_t ackNumber
+    sum += (ack.seqNumber >> 16) & 0xFFFF;  // High 16 bits
+    sum += ack.seqNumber & 0xFFFF;          // Low 16 bits
+    // uint8_t flags
+    sum += ack.flags;
+    // uint16_t windowSize
+    sum += ack.windowSize;
+    // add sum with the checksum
+    sum += ack.checksum;
+    // check if has carry
+    while (sum >> 16)
     {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    // if the checksum is not 0xFFFF, the packet is corrupted
+    if (sum != 0xFFFF)
+    {
+        cerr << "Error: The ACK packet is corrupted!" << endl;
         return -1;
     }
+
     //check packet if belongs to the type
-    // for type 00010000, allow 00010000 and 00010010
-    // mask bit 2 using 11111101 (0xFD)
+    // for type 00010000, allow 00010000 and 00010100
+    // mask bit 2 using 11111011(0xFB)
     // for type 01010000, only allow 01010000
-    if((ack.flags & 0xFD) == type)
+    if((ack.flags & 0xFB) == type)
     {
         return ack.ackNumber;
     }
@@ -298,7 +318,11 @@ int RFTPSender::receiveACK(uint8_t type)
     {
         return ack.ackNumber;
     }
-    return -1;
+    else
+    {
+        cerr << "Error: The ACK packet is not the expected type!" << endl;
+        return -1;
+    }
 }
 
 // send the information packet
@@ -540,7 +564,7 @@ int main(int argc, char *argv[])
     recvPort = 18110;
     // subdir = "send";
     subdir = ".";
-    filename = "test_24MB.bin";
+    filename = "test_47000B.bin";
 
 
     if (recvHost.empty() || recvPort == 0 || filename.empty())
