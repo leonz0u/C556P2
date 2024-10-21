@@ -76,7 +76,6 @@ RFTPReceiver::RFTPReceiver() : totalBytesReceived(0)
     receiverAddress.sin_family = AF_INET;         // 地址族为 IPv4
     receiverAddress.sin_addr.s_addr = INADDR_ANY; // 监听所有可用接口
     receiverSocket = 0;                           // 初始化套接字描述符为 0
-    startTime = std::chrono::steady_clock::now(); // 记录传输开始时间
 }
 
 // 初始化接收端套接字并绑定到指定端口
@@ -236,7 +235,7 @@ void RFTPReceiver::sendAck(uint32_t ackNumber)
     ackPacket.windowSize = rwnd;        // 设置窗口大小 
     ackPacket.data.resize(0);             // 清空数据部分
     ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
-    
+
     // 发送确认包到发送端
     sendto(receiverSocket, &ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
 }
@@ -252,7 +251,8 @@ void RFTPReceiver::sendInfoAck(uint32_t ackNumber)
     ackPacket.windowSize = rwnd;        // 设置窗口大小 
     ackPacket.data.resize(0);             // 清空数据部分
     ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
-    
+    startTime = std::chrono::steady_clock::now(); // 记录传输开始时间
+
     // 发送确认包到发送端
     sendto(receiverSocket, &ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
 }
@@ -386,6 +386,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     // 发送 ACK 确认信息包
+
                     receiver.sendInfoAck(packet.seqNumber);
                     cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
 
