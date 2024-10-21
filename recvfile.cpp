@@ -25,6 +25,8 @@ const int cwnd = 8;
 const int timeout_s = 1;
 const int timeout_ms = 0;
 const int maxPacketSize = 1472;
+// start of checksum in buffer in bytes
+const int checksumOffset = 11;
 
 // RFTP 数据包结构体
 struct RFTPPacket
@@ -59,7 +61,7 @@ public:
     // setSenderAddress?
     bool openFile(const std::string &subPath, const std::string &filename); // 打开接收文件
     void closeFile();                    // 关闭文件
-    bool receivePacket(RFTPPacket &packet); // 接收数据包
+    bool receivePacket(RFTPPacket &packet,uint8_t type); // 接收数据包
     bool receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec); // 接收数据包带超时
     void writeFileChunk(const RFTPPacket &packet); // 写入文件块
     void sendAck(uint32_t ackNumber);    // 发送确认包
@@ -68,6 +70,7 @@ public:
     int getReceiverSocket();              // 获取接收端套接字描述符
     void closeReceiverSocket();
     void sendInfoAck(uint32_t ackNumber);    // 发送确认包
+    uint16_t verifyChecksum(const std::vector<uint8_t> &buffer);
 };
 
 // 构造函数初始化成员变量
@@ -168,7 +171,7 @@ void RFTPReceiver::closeReceiverSocket()
 }
 
 // 接收一个数据包
-bool RFTPReceiver::receivePacket(RFTPPacket &packet)
+bool RFTPReceiver::receivePacket(RFTPPacket &packet, uint8_t type)
 {   
     std::vector<uint8_t> buffer(maxPacketSize);
 
@@ -179,7 +182,34 @@ bool RFTPReceiver::receivePacket(RFTPPacket &packet)
     int bytesReceived = recvfrom(receiverSocket, buffer.data(), maxPacketSize, 0, (struct sockaddr *)&senderAddress, &senderLen);
     
     buffer.resize(bytesReceived);
-    packet = deserializeRFTPPacket(buffer);
+
+    // packet = deserializeRFTPPacket(buffer);
+    if (verifyChecksum(buffer))
+    {
+        // 校验成功，反序列化数据包
+        packet = deserializeRFTPPacket(buffer);
+        // check packet if belongs to its type
+        // if type is 00000000, allow 00000000 and 00000100
+        // mask bit 2 using 11111011(0xFB)
+        // if type is 01000000, allow 01000000
+        if((packet.flags & 0xFB) == type){
+            return true;
+        }
+        else if(packet.flags == type){
+            return true;
+        }
+        else{
+            std::cerr << "Packet type mismatch!, but checksum is correct" << std::endl;
+            return false;
+        }
+        
+    }
+    else
+    {
+        std::cerr << "Checksum mismatch, packet corrupted!" << std::endl;
+        return false;
+    }
+
     if (bytesReceived < 0)
     {
         cerr << "Error: Receiving Packet failed!" << endl;
@@ -213,7 +243,7 @@ bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
     else
     {
         // 接收数据包
-        return receivePacket(packet);
+        return receivePacket(packet, 0);
     }
 }
 
@@ -272,13 +302,15 @@ uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
     // uint16_t windowSize
     sum += packet.windowSize;
     //if the data is not empty, calculate the checksum for the data
+
     if (!packet.data.empty())
     {
         // put uint8_t data into uint32_t sum
-        for (size_t i = 0; i < packet.data.size(); i += 2)
+        int packetDataSize = packet.data.size();
+        for (int i = 0; i < packetDataSize; i += 2)
         {
             uint16_t data = packet.data[i];
-            if (i + 1 < packet.data.size())
+            if (i + 1 < packetDataSize)
             {
                 data = (data << 8) + packet.data[i + 1];
             }
@@ -292,6 +324,101 @@ uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
 
     return static_cast<uint16_t>(~sum & 0xFFFF);
 }
+
+uint16_t RFTPReceiver::verifyChecksum(const std::vector<uint8_t> &buffer)
+{
+    // 提取接收到的数据包中的 checksum
+    uint16_t receivedChecksum = 0;
+    memcpy(&receivedChecksum, buffer.data() + checksumOffset, sizeof(uint16_t));
+
+    uint64_t sumX = 0;
+    const size_t windowSizeOffset = 9; // 请根据实际情况填写
+    sumX += buffer[windowSizeOffset] + (buffer[windowSizeOffset + 1] << 8);
+
+    uint64_t sum = 0;
+
+    uint32_t seqNumber = 0;
+    memcpy(&seqNumber, buffer.data() + 0, sizeof(uint32_t));
+    sum += seqNumber;
+
+    uint32_t ackNumber = 0;
+    memcpy(&ackNumber, buffer.data() + 4, sizeof(uint32_t));
+    sum += ackNumber;
+
+    uint8_t flag = 0;
+    memcpy(&flag, buffer.data() + 8, sizeof(uint8_t));
+    sum += flag;
+
+    uint16_t windowSize = 0;
+    memcpy(&windowSize, buffer.data() + 9, sizeof(uint16_t));
+    sum += windowSize;
+
+    int dataSize = buffer.size() - 13;
+    std::vector<uint8_t> data(dataSize);
+    
+    memcpy(data.data(), buffer.data() + 13, dataSize);
+
+    int sizeOfData = data.size();
+    if (!data.empty())
+    {
+        // put uint8_t data into uint32_t sum
+        for (int i = 0; i < sizeOfData; i += 2)
+        {
+            uint16_t dataX = data[i];
+            if (i + 1 < sizeOfData)
+            {
+                dataX = (dataX << 8) + data[i + 1];
+            }
+            sum += dataX;
+        }
+    }
+
+    // // 1. 累加 seqNumber
+    // const size_t seqNumberOffset = 0; // 请根据实际情况填写
+
+    // sum += (buffer[seqNumberOffset] << 8) + buffer[seqNumberOffset + 1];
+    // sum += (buffer[seqNumberOffset + 2] << 8) + buffer[seqNumberOffset + 3];
+
+    // // 2. 累加 ackNumber
+    // const size_t ackNumberOffset = 4; // 请根据 实际情况填写
+    // sum += (buffer[ackNumberOffset] << 8) + buffer[ackNumberOffset + 1];
+    // sum += (buffer[ackNumberOffset + 2] << 8) + buffer[ackNumberOffset + 3];
+
+    // // 3. 累加 flags
+    // const size_t flagsOffset = 8; // 请根据实际情况填写
+    // sum += buffer[flagsOffset];
+
+    // // 4. 累加 windowSize
+    // const size_t windowSizeOffset = 9; // 请根据实际情况填写
+    // sum += (buffer[windowSizeOffset] << 8) + buffer[windowSizeOffset + 1];
+
+    // // 5. 累加数据部分
+    // const size_t dataOffset = 13; // 请根据实际情况填写
+    // int bufferSize = buffer.size();
+    // for (size_t i = dataOffset; i < bufferSize; i += 2)
+    // {
+    //     uint16_t data = buffer[i];
+    //     if (i + 1 < bufferSize)
+    //     {
+    //         data = (data << 8) + buffer[i + 1];
+    //     }
+    //     sum += data;
+    // }
+
+    
+    // 合并高位和低位
+    while (sum >> 16)
+    {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // 计算校验和
+    // uint16_t calculatedChecksum = ~sum & 0xFFFF;
+
+    // 返回是否校验通过：1 表示成功，0 表示失败
+    return (sum + receivedChecksum == 0xFFFF);
+}
+
 
 // 打印传输统计信息
 void RFTPReceiver::printStatistics()
@@ -355,47 +482,46 @@ int main(int argc, char *argv[]) {
         FD_SET(receiverSocket, &fds);
         int activity = select(receiverSocket + 1, &fds, NULL, NULL, &tv);
         if (activity > 0 && FD_ISSET(receiverSocket, &fds)){
-            if (receiver.receivePacket(packet))
+            // type of packet is 01000000(0x40)
+            if (receiver.receivePacket(packet, 0x40))
             {
                 // 验证校验和
-                uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
-                if (calculatedChecksum != packet.checksum)
+                // uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
+                // if (calculatedChecksum != packet.checksum)
+                // {
+                //     cout << "[recv corrupt packet]" << endl; // 打印收到损坏的包
+                //     continue; // 丢弃损坏的包，继续接收下一个包
+                // }
+
+                
+                // 解析目录名和文件名
+                std::string fileInfo(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
+                size_t slash_pos = fileInfo.find('/');
+                if (slash_pos == std::string::npos)
                 {
-                    cout << "[recv corrupt packet]" << endl; // 打印收到损坏的包
-                    continue; // 丢弃损坏的包，继续接收下一个包
+                    cerr << "Invalid file information format. Expected <subdir>/<filename>" << endl;
+                    continue; // 格式错误，继续接收下一个包
+                }
+                std::string subdir = fileInfo.substr(0, slash_pos);           // 提取子目录名
+                std::string filename = fileInfo.substr(slash_pos + 1);         // 提取文件名
+
+                // 打开文件进行写入，添加 ".recv" 后缀
+                if (!receiver.openFile(subdir, filename + ".recv"))
+                {
+                    return 1; // 文件打开失败，退出程序
                 }
 
-                // 检查是否为信息包（标志位 0x40）
-                if (packet.flags & 0x40)
-                {
-                    // 解析目录名和文件名
-                    std::string fileInfo(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
-                    size_t slash_pos = fileInfo.find('/');
-                    if (slash_pos == std::string::npos)
-                    {
-                        cerr << "Invalid file information format. Expected <subdir>/<filename>" << endl;
-                        continue; // 格式错误，继续接收下一个包
-                    }
-                    std::string subdir = fileInfo.substr(0, slash_pos);           // 提取子目录名
-                    std::string filename = fileInfo.substr(slash_pos + 1);         // 提取文件名
+                // 发送 ACK 确认信息包
 
-                    // 打开文件进行写入，添加 ".recv" 后缀
-                    if (!receiver.openFile(subdir, filename + ".recv"))
-                    {
-                        return 1; // 文件打开失败，退出程序
-                    }
-
-                    // 发送 ACK 确认信息包
-
+                for(int i=0; i<5; i++){
                     receiver.sendInfoAck(packet.seqNumber);
-                    cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
 
-                    break; // 信息包处理完毕，进入数据传输阶段
                 }
-                else
-                {
-                    cout << "[recv corrupt packet]" << endl; // 非信息包，打印损坏包信息
-                }
+                cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
+
+                break; // 信息包处理完毕，进入数据传输阶段
+            
+
             }
         }
  
@@ -497,25 +623,20 @@ int main(int argc, char *argv[]) {
         FD_SET(receiverSocket, &fds);
         int activity = select(receiverSocket + 1, &fds, NULL, NULL, &tv);
         if (activity > 0 && FD_ISSET(receiverSocket, &fds)){
-            if (receiver.receivePacket(packet))
+            if (receiver.receivePacket(packet, 0))
             {
                 // 验证校验和
-                if (packet.seqNumber == 7){
-                    int x = 7;
-                }
-                uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
-                if (calculatedChecksum != packet.checksum)
-                {
-                    cout << "[recv corrupt packet]" << endl; // 打印收到损坏的包
-                    continue; // 丢弃损坏的包，继续接收下一个包
-                }
+                // if (packet.seqNumber == 7){
+                //     int x = 7;
+                // }
+                // uint16_t calculatedChecksum = receiver.calculateChecksum(packet);
+
 
                 // 检查是否为数据包（非信息包）
                 // have two type of data packet flag
                 // 00000000 and 00000100
-                if (!(packet.flags & ~0x04))
                 // if (!(packet.flags))
-                {
+                
                     if (packet.seqNumber == expectedSeqNumber)
                     {
                         // 接收到期望的包，写入文件
@@ -571,11 +692,12 @@ int main(int argc, char *argv[]) {
                             // 不立即退出，而是进入等待状态
                         }
                     }
-                }
-                else
-                {
-                    cout << "[recv corrupt packet]" << endl; // 非数据包，打印损坏包信息
-                }
+                
+
+            }
+            else{
+                // courrupt packet
+                cerr<<"corrupt packet, receivepackage failed"<<endl;
             }
         }
         }
