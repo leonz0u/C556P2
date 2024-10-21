@@ -94,14 +94,11 @@ void RFTPReceiver::initReceiverSocket(int portNumber)
     
     receiverAddress.sin_port = htons(portNumber); // 设置接收端端口号
 
-    //**************************************************************************************************//
-    // 绑定套接字到接收端地址 应该需要检查 但是一直报错 先注释掉
     if (bind(receiverSocket, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress)) < 0)
     {
         cerr << "Error: Binding failed!" << endl;
         exit(1);
     }
-    //**************************************************************************************************//
 }
 
 // 打开用于写入接收文件的文件流
@@ -440,9 +437,9 @@ int RFTPReceiver::getReceiverSocket()
 }
 
 int main(int argc, char *argv[]) {
-    int port = 18110; // 接收端端口号，初始化为 0
+    int port = 18150; // 接收端端口号，初始化为 0
 
-    // 解析命令行参数，仅接受 -p <port>
+    //解析命令行参数，仅接受 -p <port>
     int opt;
     while ((opt = getopt(argc, argv, "p:")) != -1)
     {
@@ -456,7 +453,6 @@ int main(int argc, char *argv[]) {
                 return 1;
         }
     }
-
     if (port == -1)
     {
         cerr << "Usage: " << argv[0] << " -p <port>" << endl;
@@ -471,8 +467,6 @@ int main(int argc, char *argv[]) {
     // 接收信息包阶段
     while (true)
     {   
-
-
         struct timeval tv;
         tv.tv_sec = timeout_s;
         tv.tv_usec = timeout_ms * 1000;
@@ -531,8 +525,11 @@ int main(int argc, char *argv[]) {
     uint32_t expectedSeqNumber = 0;         // 期望的序列号
     std::map<uint32_t, RFTPPacket> bufferMap; // 缓冲区，存储滑动窗口内的乱序包
     bool lastPacketReceived = false;        // 标识是否接收到最后一个包
+    const int maxwindowsize = 8;
+    int wincount = 0;
+    bool transmissionComplete = false;
 
-    while (true)
+    /*while (true)
     {
         if (lastPacketReceived)
         {
@@ -622,7 +619,10 @@ int main(int argc, char *argv[]) {
         FD_ZERO(&fds);
         FD_SET(receiverSocket, &fds);
         int activity = select(receiverSocket + 1, &fds, NULL, NULL, &tv);
+        //没满8 写入缓冲区 计数器 + 1 continue
+        //满8 计数器清0 发ack
         if (activity > 0 && FD_ISSET(receiverSocket, &fds)){
+            
             if (receiver.receivePacket(packet, 0))
             {
                 // 验证校验和
@@ -701,7 +701,76 @@ int main(int argc, char *argv[]) {
             }
         }
         }
+    }*/
+    while (!transmissionComplete) {
+        struct timeval tv;
+        tv.tv_sec = timeout_s;
+        tv.tv_usec = timeout_ms * 1000;
+        int receiverSocket = receiver.getReceiverSocket();
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(receiverSocket, &fds);
+        int activity = select(receiverSocket + 1, &fds, NULL, NULL, &tv);
+
+        if (activity > 0 && FD_ISSET(receiverSocket, &fds)) {
+            if (receiver.receivePacket(packet, 0)) {
+                // Check if transmission is already complete
+                if (lastPacketReceived) {
+                    // Ignore any packets after the last packet
+                    continue;
+                }
+
+                if (packet.seqNumber == expectedSeqNumber) {
+                    // Correct packet received
+                    receiver.writeFileChunk(packet);
+                    cout << "[recv data] " << packet.seqNumber
+                        << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
+                    expectedSeqNumber++;
+                    wincount++;
+                    cout << "wincount:" << wincount << endl;
+                    if (wincount == maxwindowsize) {
+                        // Window size reached, send ACK
+                        receiver.sendAck(expectedSeqNumber - 1);
+                        cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                        wincount = 0;
+                    }
+                } else {
+                    // Packet loss detected
+                    cout << "[recv data] " << packet.seqNumber << " "
+                        << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
+                    // Send ACK for the last correctly received packet
+                    receiver.sendAck(expectedSeqNumber - 1);
+                    cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                    wincount = 0;
+                    continue;
+                }
+
+                // Check if it's the last packet
+                if (packet.flags & 0x04) {
+                    lastPacketReceived = true;
+                    cout << "[completed]" << endl;
+                    // Send final ACK for the last packet
+                    receiver.sendAck(expectedSeqNumber - 1);
+                    cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                    transmissionComplete = true;
+                    break;
+                }
+            } else {
+                // Corrupted packet detected
+                cerr << "Corrupt packet, receivePacket failed" << endl;
+                // Send ACK for the last correctly received packet
+                receiver.sendAck(expectedSeqNumber - 1);
+                cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                wincount = 0;
+                continue;
+            }
+        } else {
+            // Timeout occurred, resend ACK for the last correctly received packet
+            receiver.sendAck(expectedSeqNumber - 1);
+            cout << "[send ack] " << expectedSeqNumber - 1 << " (timeout)" << endl;
+        }
     }
+
     receiver.closeFile();         // 关闭文件
     receiver.printStatistics();   // 打印传输统计信息
     receiver.closeReceiverSocket();
