@@ -20,8 +20,8 @@ const int rwnd = 8;
 // Congestion window size
 const int cwnd = 8;
 // Timeout
-const int timeout_s = 0;
-const int timeout_ms = 500;
+const int timeout_s = 2;
+const int timeout_ms = 0;
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -389,41 +389,43 @@ void RFTPSender::sendFile()
     int maxAck = -1;
     int totalWindowSize = min(cwnd, rwnd);
     int usedWindowSize = 0;
+    int usedSegmentSize = 0;
     int remainingFileSize = fileSize;
+    int lastSeqNumber = (fileSize + maxPayloadSize - 1) / maxPayloadSize - 1;
     // buffer to store the packets to be sent, the size is the total window size
     vector<RFTPPacket> senderBuffer(totalWindowSize);
     // set the retransmission timeout
     struct timeval tv;
     tv.tv_sec = timeout_s;
     tv.tv_usec = timeout_ms * 1000;        // convert timeout to microseconds
-    // struct timeval t1, t2;
-    // set the socket
     bool finished = false;
-    bool isRetransmit = false;
+    // load all packets in the window
+    bool notLoaded = true;
     int timeoutCount = 0;
     while (!finished)
     {
-        // create the list of packets to be sent if the window is not full
-        while (usedWindowSize < totalWindowSize && remainingFileSize > 0)
+        // create the list of packets to be sent in the window
+        // store the packets in the senderBuffer
+        if(seqBegin == lastSeqNumber)
         {
-            // if it is retransmission, only retransmit the packets in the window
-            // no need to create new packets
-            if(isRetransmit)
-            {
-                //use previous packets
-                timeoutCount++;
-                isRetransmit = false;
-            }
-            else if (remainingFileSize < maxPayloadSize)
+            int ixx = 1;
+        }
+        while (usedSegmentSize < totalWindowSize && seqBegin <= lastSeqNumber && notLoaded)
+        {
+            if (remainingFileSize < maxPayloadSize)
             {
                 segmentsNum = 1;
                 // createSegments(seqBegin, segmentsNum, true, senderBuffer);
-                // create Segments, start from seqBegin+usedWindowSize
-                createSegments(seqBegin+usedWindowSize, segmentsNum, true, senderBuffer);
+                // create Segments, start from seqBegin+usedSegmentSize
+                createSegments(seqBegin+usedSegmentSize, segmentsNum, true, senderBuffer);
+                remainingFileSize = 0;
+                usedSegmentSize += segmentsNum;
+                notLoaded = false;
+                break;
             }
             else
             {
-                segmentsNum = totalWindowSize - usedWindowSize;
+                segmentsNum = totalWindowSize - usedSegmentSize;
                 // if the remaining file size is less than the available window size, set the bit 2 to 1 for the last packet
                 if(remainingFileSize <= maxPayloadSize * segmentsNum)
                 {
@@ -433,27 +435,33 @@ void RFTPSender::sendFile()
                     // set the bit 2 to 1 for the last packet
                     // bit 2 is 00000100
                     // createSegments(seqBegin, segmentsNum, true, senderBuffer);
-                    // create Segments, start from seqBegin+usedWindowSize
-                    createSegments(seqBegin+usedWindowSize, segmentsNum, true, senderBuffer);
+                    // create Segments, start from seqBegin+usedSegmentSize
+                    createSegments(seqBegin+usedSegmentSize, segmentsNum, true, senderBuffer);
+                    remainingFileSize = 0;
+                    usedSegmentSize += segmentsNum;
+                    notLoaded = false;
+                    break;
                 }
                 else
                 {
-                    // create Segments, start from seqBegin+usedWindowSize
-                    createSegments(seqBegin+usedWindowSize, segmentsNum, false, senderBuffer);
+                    // create Segments, start from seqBegin+usedSegmentSize
+                    createSegments(seqBegin+usedSegmentSize, segmentsNum, false, senderBuffer);
+                    remainingFileSize -= maxPayloadSize * segmentsNum;
+                    usedSegmentSize += segmentsNum;
                 }
             }
-            // send the packets in the window
-            // from seqBegin to usedWindowSize + segmentsNum
-            for (int i = 0; i < usedWindowSize + segmentsNum; ++i)
+        }
+        // send the packets in the window
+        // from seqBegin to usedSegmentSize + segmentsNum
+        while(usedWindowSize < usedSegmentSize)
+        {
+            if(!sendPacket(senderBuffer[(seqBegin + usedWindowSize) % senderBuffer.size()]))
             {
-                if (!sendPacket(senderBuffer[(seqBegin + i) % senderBuffer.size()]))
-                {
-                    cerr << "Error: Sending Packet failed!" << endl;
-                    continue;
-                }
-                cout << "Sent packet with sequence number: " << seqBegin + i << endl;
+                cerr << "Error: Sending Packet failed!" << endl;
+                continue;
             }
-            usedWindowSize += segmentsNum;
+            cout << "Sent packet with sequence number: " << seqBegin + usedWindowSize << endl;
+            usedWindowSize++;
         }
 
         // wait for the ACK or timeout
@@ -470,9 +478,9 @@ void RFTPSender::sendFile()
             // timeout
             cout << "Timeout!" << endl;
             //retransmit the packets in the window
-            isRetransmit = true;
             seqBegin = maxAck + 1;
-            usedWindowSize = usedWindowSize - segmentsNum;
+            // free the used window size, but keep the used segment size
+            usedWindowSize = 0;
             // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
             // gettimeofday(&t2, NULL);
             // tv = calculateTimeout(t1, t2);
@@ -503,15 +511,22 @@ void RFTPSender::sendFile()
             cout << "Received ACK: " << ack << endl;
             // if the ack is in the window, update the window size
             usedWindowSize = max(0, usedWindowSize - (ack - seqBegin + 1));
+            usedSegmentSize = usedWindowSize;
+            // if the ack is the last packet, the file is sent successfully
             maxAck = max(maxAck, ack);
-            // update the sequence number
-            seqBegin = maxAck + 1;
-            remainingFileSize = fileSize - seqBegin * maxPayloadSize;
-            if(remainingFileSize <= 0)
+            if (ack == lastSeqNumber)
             {
                 finished = true;
                 break;
             }
+            // update the sequence number
+            seqBegin = maxAck + 1;
+            // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
+            // if(remainingFileSize <= 0)
+            // {
+            //     finished = true;
+            //     break;
+            // }
         }
     }
     if(finished)
@@ -571,7 +586,7 @@ int main(int argc, char *argv[])
 
     //for local test purpose sendfile -r 128.42.124.187:18105 -f test.txt
     recvHost = "128.42.124.178";
-    recvPort = 18110;
+    recvPort = 18150;
     // subdir = "send";
     subdir = ".";
     filename = "test_47000B.bin";
