@@ -548,6 +548,7 @@ int main(int argc, char *argv[])
     string subdir;
     string filename;
 
+    // Parse command line arguments
     int opt;
     while ((opt = getopt(argc, argv, "r:f:")) != -1)
     {
@@ -555,47 +556,58 @@ int main(int argc, char *argv[])
         {
         case 'r':
         {
-            string addr = optarg;
-            size_t colon_pos = addr.find(":");
-            if (colon_pos == std::string::npos)
+            // Expecting recvHost:recvPort format
+            char *token = strtok(optarg, ":");
+            if (token != nullptr)
             {
-                std::cerr << "Invalid receiver address format. Expected <recv host>:<recv port>" << std::endl;
+                recvHost = token;
+                token = strtok(nullptr, ":");
+                if (token != nullptr)
+                {
+                    recvPort = stoi(token);
+                }
+                else
+                {
+                    cerr << "Error: Invalid format for -r. Expected <recv host>:<recv port>" << endl;
+                    return 1;
+                }
+            }
+            else
+            {
+                cerr << "Error: Invalid format for -r. Expected <recv host>:<recv port>" << endl;
                 return 1;
             }
-            recvHost = addr.substr(0, colon_pos);
-            recvPort = std::stoi(addr.substr(colon_pos + 1));
             break;
         }
         case 'f':
-        {
-            string file = optarg;
-            size_t slash_pos = file.find("/");
-            if (slash_pos == std::string::npos)
-            {
-                std::cerr << "Invalid file information format. Expected <subdir>/<filename>" << std::endl;
-                return 1;
-            }
-            subdir = file.substr(0, slash_pos);
-            filename = file.substr(slash_pos + 1);
+            // Expecting subdir/filename format
+            filename = optarg;
             break;
-        }
         default:
-            std::cerr << "Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>" << std::endl;
+            cerr << "Usage: " << argv[0] << " -r <recv host>:<recv port> -f <subdir>/<filename>" << endl;
             return 1;
         }
     }
 
-    //print the receiver address and port number
-    cout << "Receiver Address: " << recvHost << endl;
-    cout << "Receiver Port: " << recvPort << endl;
-    cout << "Subdirectory: " << subdir << endl;
-    cout << "Filename: " << filename << endl;
-
+    // If any required parameter is missing, show usage
     if (recvHost.empty() || recvPort == 0 || filename.empty())
     {
-        std::cerr << "Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>" << std::endl;
+        cerr << "Usage: " << argv[0] << " -r <recv host>:<recv port> -f <subdir>/<filename>" << endl;
         return 1;
     }
+
+    // Extract subdir and filename
+    size_t lastSlash = filename.find_last_of("/");
+    if (lastSlash != string::npos)
+    {
+        subdir = filename.substr(0, lastSlash);
+        filename = filename.substr(lastSlash + 1);
+    }
+    else
+    {
+        subdir = "."; // If no subdirectory is specified, use current directory
+    }
+
 
     RFTPSender sender;
     sender.initSenderSocket();
@@ -603,7 +615,6 @@ int main(int argc, char *argv[])
 
     if (!sender.openFile(subdir, filename))
     {
-        cerr << "Error: Unable to open file!" << endl;
         return 1;
     }
 
