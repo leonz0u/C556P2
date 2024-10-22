@@ -8,14 +8,21 @@ cd /local/zx55comp429/project2/send
 
 # List of netsim parameter combinations
 NETSIM_PARAMS=(
-  "--delay 10 --drop 5"
-  "--delay 20 --drop 10"
-  "--reorder 15 --mangle 10"
-  "--duplicate 10 --drop 10"
+  "--delay 40 --drop 25 --reorder 10 --mangle 5 --duplicate 15" # delay: 40%, drop: 25%, reorder: 10%, mangle: 5%, duplicate: 15%
+  "--delay 45 --drop 30 --reorder 20 --mangle 10 --duplicate 25" # delay: 45%, drop: 30%, reorder: 20%, mangle: 10%, duplicate: 25%
+  "--delay 35 --drop 20 --reorder 30 --mangle 20 --duplicate 20" # delay: 35%, drop: 20%, reorder: 30%, mangle: 20%, duplicate: 20%
+  "--delay 25 --drop 40 --reorder 25 --mangle 15 --duplicate 30" # delay: 25%, drop: 40%, reorder: 25%, mangle: 15%, duplicate: 30%
+  "--delay 30 --drop 45 --reorder 40 --mangle 25 --duplicate 35" # delay: 30%, drop: 45%, reorder: 40%, mangle: 25%, duplicate: 35%
+  "--delay 20 --drop 35 --reorder 50 --mangle 30 --duplicate 40" # delay: 20%, drop: 35%, reorder: 50%, mangle: 30%, duplicate: 40%
+  "--delay 10 --drop 30 --reorder 60 --mangle 35 --duplicate 45" # delay: 10%, drop: 30%, reorder: 60%, mangle: 35%, duplicate: 45%
+  "--delay 15 --drop 40 --reorder 70 --mangle 40 --duplicate 50" # delay: 15%, drop: 40%, reorder: 70%, mangle: 40%, duplicate: 50%
+  "--delay 5 --drop 20 --reorder 80 --mangle 45 --duplicate 55" # delay: 5%, drop: 20%, reorder: 80%, mangle: 45%, duplicate: 55%
+  "--delay 12 --drop 25 --reorder 90 --mangle 50 --duplicate 60" # delay: 12%, drop: 25%, reorder: 90%, mangle: 50%, duplicate: 60%
 )
 
+
 # List of files to be tested
-FILES=("test_1450B.bin" "test_47000B.bin")
+FILES=("test_500B.bin" "test_11600B.bin" "test_47000B.bin" "test_24MB.bin" "test_64MB.bin")
 
 # Results output file
 RESULT_FILE="../sendfile_results.log"  # Save log in parent directory
