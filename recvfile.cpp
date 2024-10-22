@@ -106,8 +106,15 @@ void RFTPReceiver::clearSocketBuffer(int socket)
 
 bool RFTPReceiver::openFile(const std::string &subPath, const std::string &filename)
 {
-    std::string fullPath = subPath + "/" + filename; 
-    std::string mkdirCommand = "mkdir -p " + subPath;
+
+    // debug mode
+    // std::string fullPath = "./recv/" + subPath + "/" + filename; 
+    // std::string mkdirCommand = "mkdir -p ./recv/" + subPath;
+
+    // build mode
+    std::string fullPath = "./" + subPath + "/" + filename; 
+    std::string mkdirCommand = "mkdir -p ./" + subPath;
+
     system(mkdirCommand.c_str());
 
     file.open(fullPath, std::ios::binary); 
@@ -445,26 +452,32 @@ int main(int argc, char *argv[]) {
             if (receiver.receivePacket(packet, 0x40))
             { 
                 std::string fileInfo(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
-                size_t slash_pos = fileInfo.find('/');
-                if (slash_pos == std::string::npos)
-                {
-                    cerr << "Invalid file information format. Expected <subdir>/<filename>" << endl;
-                    continue; 
-                }
-                std::string subdir = fileInfo.substr(0, slash_pos);          
-                std::string filename = fileInfo.substr(slash_pos + 1);     
+                size_t pos = fileInfo.rfind('/');
 
-                if (!receiver.openFile(subdir, filename + ".recv"))
-                {
-                    return 1; 
+                std::string subdir;
+                std::string filename;
+                if (pos != std::string::npos) {
+                    subdir = fileInfo.substr(0, pos);      
+                    filename = fileInfo.substr(pos + 1);   
+                    
+                    std::cout << "Subdirectory: " << subdir << std::endl;
+                    std::cout << "Filename: " << filename << std::endl;
+                } else {
+                    std::cout << "No directory separator found in the path." << std::endl;
                 }
 
+                if (receiver.openFile(subdir, filename + ".recv"))
+                {
                 for(int i=0; i < infoAckNum; i++){
                     receiver.sendAck(packet.seqNumber, 0x50);
                 }
 
                 cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
-                break; 
+                break;               
+              }
+              else{
+                cout << "openFile failed, please check!!" << endl;
+              }
             
 
             }
