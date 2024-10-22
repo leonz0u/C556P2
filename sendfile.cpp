@@ -16,12 +16,12 @@ using namespace std;
 // Global variables for test
 const int maxPayloadSize = 1450;
 // Receiver window size
-const int rwnd = 8;
+const int rwnd = 32;
 // Congestion window size
-const int cwnd = 8;
+const int cwnd = 32;
 // Timeout
 const int timeout_s = 0;
-const int timeout_ms = 500;
+const int timeout_ms = 1;
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -60,6 +60,7 @@ private:
 public:
     RFTPSender();
     void initSenderSocket();
+    void clearSocketBuffer(int socket);
     void closeSenderSocket();
     void setReceiverAddress(string ipAddress, int portNumber);
     bool openFile(const std::string &subPath, const std::string &filename);
@@ -94,6 +95,16 @@ void RFTPSender::initSenderSocket()
     {
         cerr << "Error: The sender socket could not be opened!" << endl;
         exit(1);
+    }
+}
+
+// clear the socket buffer
+void RFTPSender::clearSocketBuffer(int socket)
+{
+    char buffer[1472];
+    while (recv(socket, buffer, sizeof(buffer), MSG_DONTWAIT) > 0)
+    {
+        // clear the buffer
     }
 }
 
@@ -245,7 +256,7 @@ void RFTPSender::createSegments(int seqBegin, int segmentsNum, bool isLastPacket
     file.seekg(seqBegin * maxPayloadSize);
     file.read(reinterpret_cast<char *>(fileContent), segmentsNum * maxPayloadSize);
     int readFileSize = file.gcount();
-    cout << "Read file size: " << readFileSize << endl;
+    // cout << "Read file size: " << readFileSize << endl;
     for (int i = 0; i < segmentsNum; ++i)
     {
         RFTPPacket packet;
@@ -289,7 +300,7 @@ int RFTPSender::receiveACK(uint8_t type)
     // if seqNumber is not 0, return -1
     if (seqNumber != 0)
     {
-        cerr << "Error: The ACK packet is corrupted!" << endl;
+        // cerr << "Error: The ACK packet is corrupted!" << endl;
         return -1;
     }
 
@@ -318,13 +329,13 @@ int RFTPSender::receiveACK(uint8_t type)
     // if the checksum is not 0xFFFF, the packet is corrupted
     if (sum + checksum != 0xFFFF)
     {
-        cerr << "Error: The ACK packet is corrupted!" << endl;
+        // cerr << "Error: The ACK packet is corrupted!" << endl;
         return -1;
     }
     // check if ackNumber in the range
     if(ackNumber < 0 || ackNumber > fileSize)
     {
-        cerr << "Error: The ACK packet is out of range!" << endl;
+        // cerr << "Error: The ACK packet is out of range!" << endl;
         return -1;
     }
     //check packet if belongs to the type
@@ -341,7 +352,7 @@ int RFTPSender::receiveACK(uint8_t type)
     }
     else
     {
-        cerr << "Error: The ACK packet is not the expected type!" << endl;
+        // cerr << "Error: The ACK packet is not the expected type!" << endl;
         return -1;
     }
 }
@@ -359,7 +370,7 @@ bool RFTPSender::sendInfoPacket()
             cerr << "Error: Sending Information Packet failed!" << endl;
             continue;
         }
-        cout << "Sent information packet with filename: " << filename << endl;
+        // cout << "Sent information packet with filename: " << filename << endl;
         // wait for the ACK
         struct timeval tv;
         tv.tv_sec = timeout_s;
@@ -377,21 +388,23 @@ bool RFTPSender::sendInfoPacket()
             int ack = receiveACK(0x50);
             if (ack < 0)
             {
-                cerr << "Error: Receiving ACK failed!" << endl;
+                // cerr << "Error: Receiving ACK failed!" << endl;
                 continue;
             }
-            cout << "Received ACK of information packet: " << ack << endl;
+            // cout << "Received ACK of information packet: " << ack << endl;
             isFinished = true;
+            // clear the receiver socket buffer
+            clearSocketBuffer(senderSocket);
             break;
         }
         else if (activity == 0)
         {
-            cout << "Ack Information packet timeout!" << endl;
+            // cerr << "Ack Information packet timeout!" << endl;
             continue;
         }
         else
         {
-            cerr << "Error: Select failed!" << endl;
+            // cerr << "Error: Select failed!" << endl;
             continue;
         }
     }
@@ -471,7 +484,7 @@ void RFTPSender::sendFile()
                 cerr << "Error: Sending Packet failed!" << endl;
                 continue;
             }
-            cout << "Sent packet with sequence number: " << seqBegin + usedWindowSize << endl;
+            // cout << "Sent packet with sequence number: " << seqBegin + usedWindowSize << endl;
             usedWindowSize++;
         }
 
@@ -487,7 +500,7 @@ void RFTPSender::sendFile()
         if(activity == 0)
         {
             // timeout
-            cout << "Timeout!" << endl;
+            cerr << "Timeout!" << endl;
             //retransmit the packets in the window
             seqBegin = maxAck + 1;
             // free the used window size, but keep the used segment size
@@ -507,21 +520,21 @@ void RFTPSender::sendFile()
             int ack = receiveACK(0x10);
             if (ack < 0)
             {
-                cerr << "Error: Receiving ACK failed!" << endl;
+                // cerr << "Error: Receiving ACK failed!" << endl;
                 continue;
             }
             // if the ack is not in the window, ignore it
             if (ack < seqBegin || ack >= seqBegin + totalWindowSize)
             {
-                cout << "Received ACK: " << ack << " is not in the window!" << endl;
+                // cerr << "Received ACK: " << ack << " is not in the window!" << endl;
                 continue;
             }
-            cout << "Received ACK: " << ack << endl;
+            // cout << "Received ACK: " << ack << endl;
             // if the ack is in the window, update the window size
             usedWindowSize = max(0, usedWindowSize - (ack - seqBegin + 1));
             usedSegmentSize = usedWindowSize;
+            maxAck = (maxAck > ack ? maxAck : ack);
             // if the ack is the last packet, the file is sent successfully
-            maxAck = max(maxAck, ack);
             if (ack == lastSeqNumber)
             {
                 finished = true;
@@ -533,7 +546,7 @@ void RFTPSender::sendFile()
     }
     if(finished)
     {
-        cout << "File sent successfully!" << endl;
+        cout << "[completed]" << endl;
     }
     else
     {

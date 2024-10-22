@@ -19,15 +19,15 @@
 using namespace std;
 
 const int maxPayloadSize = 1450;
-const int rwnd = 8;              
-const int cwnd = 8;
+const int rwnd = 32;              
+const int cwnd = 32;
 const int timeout_s = 0;
-const int timeout_ms = 500;
+const int timeout_ms = 2;
 const int maxPacketSize = 1472;
 const int checksumOffset = 11;
-const int infoAckNum = 5;
-const int lastAckNum = 5;
-const int maxwindowsize = 8;
+const int infoAckNum = 4;
+const int lastAckNum = 4;
+const int maxwindowsize = 32;
 
 struct RFTPPacket
 {
@@ -54,8 +54,8 @@ private:
 
 public:
     RFTPReceiver();                  
-    void initReceiverSocket(int portNumber); 
-    // setSenderAddress?
+    void initReceiverSocket(int portNumber);
+    void clearSocketBuffer(int socket);
     bool openFile(const std::string &subPath, const std::string &filename); 
     void closeFile();              
     bool receivePacket(RFTPPacket &packet,uint8_t type);
@@ -91,6 +91,16 @@ void RFTPReceiver::initReceiverSocket(int portNumber)
     {
         cerr << "Error: Binding failed!" << endl;
         exit(1);
+    }
+}
+
+// clear the socket buffer
+void RFTPReceiver::clearSocketBuffer(int socket)
+{
+    char buffer[1472];
+    while (recv(socket, buffer, sizeof(buffer), MSG_DONTWAIT) > 0)
+    {
+        // clear the buffer
     }
 }
 
