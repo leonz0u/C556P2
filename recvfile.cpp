@@ -25,8 +25,8 @@ const int timeout_s = 0;
 const int timeout_ms = 500;
 const int maxPacketSize = 1472;
 const int checksumOffset = 11;
-const int infoAckNum = 1;
-const int lastAckNum = 1;
+const int infoAckNum = 5;
+const int lastAckNum = 5;
 const int maxwindowsize = 8;
 
 struct RFTPPacket
