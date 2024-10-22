@@ -20,8 +20,8 @@ const int rwnd = 8;
 // Congestion window size
 const int cwnd = 8;
 // Timeout
-const int timeout_s = 2;
-const int timeout_ms = 0;
+const int timeout_s = 0;
+const int timeout_ms = 500;
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -280,47 +280,64 @@ int RFTPSender::receiveACK(uint8_t type)
     // ACK Type is 00010000
     // last packet ACK type is 00010010
     // information packet ACK type is 01010000
-    RFTPPacket ack;
-    int ackSize = sizeof(ack);
-    int no = recvfrom(senderSocket, &ack, ackSize, 0, (struct sockaddr *)&receiverAddress, (socklen_t *)sizeof(receiverAddress));    
-    // if no is equal to sizeof(ack), return -1
-    // if (no != ackSize){
-    //     return -1;
-    // } 
+    // create buffer to store the ACK
+    // Ack Packet size is 13 bytes
+    std::vector<uint8_t> buffer(13);
+    int recvSize = recvfrom(senderSocket, buffer.data(), buffer.size(), 0, (struct sockaddr *)&receiverAddress, (socklen_t *)&receiverAddress);
+    uint32_t seqNumber = 0;
+    memcpy(&seqNumber, buffer.data(), sizeof(uint32_t));
+    // if seqNumber is not 0, return -1
+    if (seqNumber != 0)
+    {
+        cerr << "Error: The ACK packet is corrupted!" << endl;
+        return -1;
+    }
+
     // validate the ACK using Checksum
     // uint32_t sum = 0;
     uint64_t sum = 0;
-    // uint32_t ackNumber
-    sum += ack.ackNumber;
-    // uint8_t flags
-    sum += ack.flags;
-    // uint16_t windowSize
-    sum += ack.windowSize;
-    // add sum with the checksum
-    // sum += ack.checksum;
+    uint16_t checksum = 0;
+    memcpy(&checksum, buffer.data() + 11, sizeof(uint16_t));
+
+    // add the header fields to the sum
+    uint32_t ackNumber = 0;
+    memcpy(&ackNumber, buffer.data() + 4, sizeof(uint32_t));
+    sum += ackNumber;
+    uint8_t flags = 0;
+    memcpy(&flags, buffer.data() + 8, sizeof(uint8_t));
+    sum += flags;
+    uint16_t windowSize = 0;
+    memcpy(&windowSize, buffer.data() + 9, sizeof(uint16_t));
+    sum += windowSize;
+
     // check if has carry
     while (sum >> 16)
     {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
     // if the checksum is not 0xFFFF, the packet is corrupted
-    if (sum + ack.checksum != 0xFFFF)
+    if (sum + checksum != 0xFFFF)
     {
         cerr << "Error: The ACK packet is corrupted!" << endl;
         return -1;
     }
-
+    // check if ackNumber in the range
+    if(ackNumber < 0 || ackNumber > fileSize)
+    {
+        cerr << "Error: The ACK packet is out of range!" << endl;
+        return -1;
+    }
     //check packet if belongs to the type
     // for type 00010000, allow 00010000 and 00010100
     // mask bit 2 using 11111011(0xFB)
     // for type 01010000, only allow 01010000
-    if((ack.flags & 0xFB) == type)
+    if((flags & 0xFB) == type)
     {
-        return ack.ackNumber;
+        return ackNumber;
     }
-    else if(ack.flags == type)
+    else if(flags == type)
     {
-        return ack.ackNumber;
+        return ackNumber;
     }
     else
     {

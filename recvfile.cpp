@@ -64,12 +64,12 @@ public:
     bool receivePacket(RFTPPacket &packet,uint8_t type); // 接收数据包
     bool receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec); // 接收数据包带超时
     void writeFileChunk(const RFTPPacket &packet); // 写入文件块
-    void sendAck(uint32_t ackNumber);    // 发送确认包
+    void sendAck(uint32_t ackNumber, uint8_t flag); // 发送确认包
     uint16_t calculateChecksum(const RFTPPacket &packet); // 计算校验和
     void printStatistics();              // 打印传输统计信息
     int getReceiverSocket();              // 获取接收端套接字描述符
     void closeReceiverSocket();
-    void sendInfoAck(uint32_t ackNumber);    // 发送确认包
+    // void sendInfoAck(uint32_t ackNumber);    // 发送确认包
     uint16_t verifyChecksum(const std::vector<uint8_t> &buffer);
 };
 
@@ -115,6 +115,8 @@ bool RFTPReceiver::openFile(const std::string &subPath, const std::string &filen
         cerr << "Error: Unable to open file for writing!" << endl;
         return false;
     }
+    // begin to record the time
+    startTime = std::chrono::steady_clock::now();
     return true;
 }
 
@@ -252,37 +254,56 @@ void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
 }
 
 // 发送确认包
-void RFTPReceiver::sendAck(uint32_t ackNumber)
+void RFTPReceiver::sendAck(uint32_t ackNumber, uint8_t flag)
 {
     RFTPPacket ackPacket;              // 创建一个确认包
     // memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
     ackPacket.seqNumber = 0;     // 设置序列号为 0
     ackPacket.ackNumber = ackNumber;   // 设置确认号
-    ackPacket.flags = 0x10;            // 设置 ACK 标志位
-    ackPacket.windowSize = rwnd;        // 设置窗口大小 
+    ackPacket.flags = flag;            // 设置 ACK 标志位
+    ackPacket.windowSize = min(rwnd, cwnd);        // 设置窗口大小
     ackPacket.data.resize(0);             // 清空数据部分
     ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
 
-    // 发送确认包到发送端
-    sendto(receiverSocket, &ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
+    // store ackPacket to buffer
+    // Ack Packet size is 13 bytes
+    std::vector<uint8_t> buffer(13);
+    size_t offset = 0;
+    // Add seqNumber to buffer
+    std::memcpy(buffer.data() + offset, &ackPacket.seqNumber, sizeof(ackPacket.seqNumber));
+    offset += sizeof(ackPacket.seqNumber);
+    // Add ackNumber to buffer
+    std::memcpy(buffer.data() + offset, &ackPacket.ackNumber, sizeof(ackPacket.ackNumber));
+    offset += sizeof(ackPacket.ackNumber);
+    // Add flags to buffer
+    std::memcpy(buffer.data() + offset, &ackPacket.flags, sizeof(ackPacket.flags));
+    offset += sizeof(ackPacket.flags);
+    // Add windowSize to buffer
+    std::memcpy(buffer.data() + offset, &ackPacket.windowSize, sizeof(ackPacket.windowSize));
+    offset += sizeof(ackPacket.windowSize);
+    // Add checksum to buffer
+    std::memcpy(buffer.data() + offset, &ackPacket.checksum, sizeof(ackPacket.checksum));
+
+    // send buffer to sender
+    sendto(receiverSocket, buffer.data(), buffer.size(), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
 }
 
-// 发送确认包
-void RFTPReceiver::sendInfoAck(uint32_t ackNumber)
-{
-    RFTPPacket ackPacket;              // 创建一个确认包
-    // memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
-    ackPacket.seqNumber = 0;     // 设置序列号为 0
-    ackPacket.ackNumber = ackNumber;   // 设置确认号
-    ackPacket.flags = 0x50;            // 设置 ACK 标志位
-    ackPacket.windowSize = rwnd;        // 设置窗口大小 
-    ackPacket.data.resize(0);             // 清空数据部分
-    ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
-    startTime = std::chrono::steady_clock::now(); // 记录传输开始时间
+// // 发送确认包
+// void RFTPReceiver::sendInfoAck(uint32_t ackNumber)
+// {
+//     RFTPPacket ackPacket;              // 创建一个确认包
+//     // memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
+//     ackPacket.seqNumber = 0;     // 设置序列号为 0
+//     ackPacket.ackNumber = ackNumber;   // 设置确认号
+//     ackPacket.flags = 0x50;            // 设置 ACK 标志位
+//     ackPacket.windowSize = rwnd;        // 设置窗口大小 
+//     ackPacket.data.resize(0);             // 清空数据部分
+//     ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
+//     startTime = std::chrono::steady_clock::now(); // 记录传输开始时间
 
-    // 发送确认包到发送端
-    sendto(receiverSocket, &ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
-}
+//     // 发送确认包到发送端
+//     sendto(receiverSocket, &ackPacket, sizeof(ackPacket), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
+// }
 
 // 计算数据包的校验和
 uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
@@ -508,10 +529,12 @@ int main(int argc, char *argv[]) {
                 // 发送 ACK 确认信息包
 
                 for(int i=0; i<5; i++){
-                    receiver.sendInfoAck(packet.seqNumber);
+                    receiver.sendAck(packet.seqNumber, 0x50);
 
                 }
                 cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
+
+
 
                 break; // 信息包处理完毕，进入数据传输阶段
             
@@ -730,7 +753,7 @@ int main(int argc, char *argv[]) {
                     cout << "wincount:" << wincount << endl;
                     if (wincount == maxwindowsize) {
                         // Window size reached, send ACK
-                        receiver.sendAck(expectedSeqNumber - 1);
+                        receiver.sendAck(expectedSeqNumber - 1, 0x10);
                         cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                         wincount = 0;
                     }
@@ -739,7 +762,7 @@ int main(int argc, char *argv[]) {
                     cout << "[recv data] " << packet.seqNumber << " "
                         << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
                     // Send ACK for the last correctly received packet
-                    receiver.sendAck(expectedSeqNumber - 1);
+                    receiver.sendAck(expectedSeqNumber - 1, 0x10);
                     cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                     wincount = 0;
                     continue;
@@ -750,7 +773,7 @@ int main(int argc, char *argv[]) {
                     lastPacketReceived = true;
                     cout << "[completed]" << endl;
                     // Send final ACK for the last packet
-                    receiver.sendAck(expectedSeqNumber - 1);
+                    receiver.sendAck(expectedSeqNumber - 1, 0x10);
                     cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                     transmissionComplete = true;
                     break;
@@ -759,14 +782,14 @@ int main(int argc, char *argv[]) {
                 // Corrupted packet detected
                 cerr << "Corrupt packet, receivePacket failed" << endl;
                 // Send ACK for the last correctly received packet
-                receiver.sendAck(expectedSeqNumber - 1);
+                receiver.sendAck(expectedSeqNumber - 1, 0x10);
                 cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                 wincount = 0;
                 continue;
             }
         } else {
             // Timeout occurred, resend ACK for the last correctly received packet
-            receiver.sendAck(expectedSeqNumber - 1);
+            receiver.sendAck(expectedSeqNumber - 1, 0x10);
             cout << "[send ack] " << expectedSeqNumber - 1 << " (timeout)" << endl;
         }
     }
