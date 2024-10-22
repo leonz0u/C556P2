@@ -14,77 +14,70 @@
 #include <chrono>
 #include <iomanip>
 #include <map>
-#include <sys/select.h> // 用于实现超时接收
+#include <sys/select.h> 
 
 using namespace std;
 
-// 全局变量
-const int maxPayloadSize = 1450; // 每个数据包的最大有效载荷大小（字节）
-const int rwnd = 8;               // 接收窗口大小
+const int maxPayloadSize = 1450;
+const int rwnd = 8;              
 const int cwnd = 8;
-const int timeout_s = 1;
-const int timeout_ms = 0;
+const int timeout_s = 0;
+const int timeout_ms = 500;
 const int maxPacketSize = 1472;
-// start of checksum in buffer in bytes
 const int checksumOffset = 11;
+const int infoAckNum = 1;
+const int lastAckNum = 1;
+const int maxwindowsize = 8;
 
-// RFTP 数据包结构体
 struct RFTPPacket
 {
-    uint32_t seqNumber;          // 序列号
-    uint32_t ackNumber;          // 确认号
-    uint8_t flags;               // 标志位
-    uint16_t windowSize;         // 窗口大小
-    uint16_t checksum;           // 校验和
-    std::vector<uint8_t> data; // 数据载荷
-    // char data[maxPayloadSize];   // 数据载荷
-    // uint16_t data.size();         // 数据长度
+    uint32_t seqNumber;          
+    uint32_t ackNumber;          
+    uint8_t flags;             
+    uint16_t windowSize;       
+    uint16_t checksum;           
+    std::vector<uint8_t> data; 
 };
 
-// RFTP 接收端类
 class RFTPReceiver
 {
 private:
-    struct sockaddr_in receiverAddress; // 接收端地址结构
-    struct sockaddr_in senderAddress;   // 发送端地址结构
-    int receiverSocket;                 // 套接字描述符
-    std::ofstream file;                 // 文件输出流
+    struct sockaddr_in receiverAddress; 
+    struct sockaddr_in senderAddress;   
+    int receiverSocket;                
+    std::ofstream file;                
     int fileSize;
     std::string subdir;
     std::string filename;    
-    uint32_t totalBytesReceived;        // 总接收字节数
-    std::chrono::steady_clock::time_point startTime; // 传输开始时间
+    uint32_t totalBytesReceived;     
+    std::chrono::steady_clock::time_point startTime;
 
 public:
-    RFTPReceiver();                      // 构造函数
-    void initReceiverSocket(int portNumber); // 初始化接收端套接字
+    RFTPReceiver();                  
+    void initReceiverSocket(int portNumber); 
     // setSenderAddress?
-    bool openFile(const std::string &subPath, const std::string &filename); // 打开接收文件
-    void closeFile();                    // 关闭文件
-    bool receivePacket(RFTPPacket &packet,uint8_t type); // 接收数据包
-    bool receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec); // 接收数据包带超时
-    void writeFileChunk(const RFTPPacket &packet); // 写入文件块
-    void sendAck(uint32_t ackNumber, uint8_t flag); // 发送确认包
-    uint16_t calculateChecksum(const RFTPPacket &packet); // 计算校验和
-    void printStatistics();              // 打印传输统计信息
-    int getReceiverSocket();              // 获取接收端套接字描述符
+    bool openFile(const std::string &subPath, const std::string &filename); 
+    void closeFile();              
+    bool receivePacket(RFTPPacket &packet,uint8_t type);
+    bool receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec); 
+    void writeFileChunk(const RFTPPacket &packet); 
+    void sendAck(uint32_t ackNumber, uint8_t flag); 
+    uint16_t calculateChecksum(const RFTPPacket &packet); 
+    void printStatistics();           
+    int getReceiverSocket();            
     void closeReceiverSocket();
-    // void sendInfoAck(uint32_t ackNumber);    // 发送确认包
     uint16_t verifyChecksum(const std::vector<uint8_t> &buffer);
 };
 
-// 构造函数初始化成员变量
 RFTPReceiver::RFTPReceiver() : totalBytesReceived(0)
 {
-    receiverAddress.sin_family = AF_INET;         // 地址族为 IPv4
-    receiverAddress.sin_addr.s_addr = INADDR_ANY; // 监听所有可用接口
-    receiverSocket = 0;                           // 初始化套接字描述符为 0
+    receiverAddress.sin_family = AF_INET;        
+    receiverAddress.sin_addr.s_addr = INADDR_ANY; 
+    receiverSocket = 0;                         
 }
 
-// 初始化接收端套接字并绑定到指定端口
 void RFTPReceiver::initReceiverSocket(int portNumber)
 {
-    // 创建 UDP 套接字
     receiverSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (receiverSocket < 0)
     {
@@ -92,7 +85,7 @@ void RFTPReceiver::initReceiverSocket(int portNumber)
         exit(1);
     }
     
-    receiverAddress.sin_port = htons(portNumber); // 设置接收端端口号
+    receiverAddress.sin_port = htons(portNumber); 
 
     if (bind(receiverSocket, (struct sockaddr *)&receiverAddress, sizeof(receiverAddress)) < 0)
     {
@@ -101,15 +94,13 @@ void RFTPReceiver::initReceiverSocket(int portNumber)
     }
 }
 
-// 打开用于写入接收文件的文件流
 bool RFTPReceiver::openFile(const std::string &subPath, const std::string &filename)
 {
-    std::string fullPath = subPath + "/" + filename; // 构建完整的文件路径
-    // 如果目录不存在，创建目录
+    std::string fullPath = subPath + "/" + filename; 
     std::string mkdirCommand = "mkdir -p " + subPath;
     system(mkdirCommand.c_str());
 
-    file.open(fullPath, std::ios::binary); // 以二进制模式打开文件
+    file.open(fullPath, std::ios::binary); 
     if (!file.is_open())
     {
         cerr << "Error: Unable to open file for writing!" << endl;
@@ -124,35 +115,27 @@ RFTPPacket deserializeRFTPPacket(const std::vector<uint8_t>& buffer) {
     RFTPPacket packet;
     size_t offset = 0;
 
-    // 1. 反序列化 seqNumber
     std::memcpy(&packet.seqNumber, buffer.data() + offset, sizeof(packet.seqNumber));
     offset += sizeof(packet.seqNumber);
 
-    // 2. 反序列化 ackNumber
     std::memcpy(&packet.ackNumber, buffer.data() + offset, sizeof(packet.ackNumber));
     offset += sizeof(packet.ackNumber);
 
-    // 3. 反序列化 flags
     packet.flags = buffer[offset];
     offset += sizeof(packet.flags);
 
-    // 4. 反序列化 windowSize
     std::memcpy(&packet.windowSize, buffer.data() + offset, sizeof(packet.windowSize));
     offset += sizeof(packet.windowSize);
 
-    // 5. 反序列化 checksum
     std::memcpy(&packet.checksum, buffer.data() + offset, sizeof(packet.checksum));
     offset += sizeof(packet.checksum);
 
-    // 6. 反序列化数据内容
     packet.data.resize(buffer.size() - offset);
     std::memcpy(packet.data.data(), buffer.data() + offset, packet.data.size());
 
     return packet;
 }
 
-
-// 关闭文件流
 void RFTPReceiver::closeFile()
 {
     if (file.is_open())
@@ -169,23 +152,18 @@ void RFTPReceiver::closeReceiverSocket()
     }
 }
 
-// 接收一个数据包
 bool RFTPReceiver::receivePacket(RFTPPacket &packet, uint8_t type)
 {   
     std::vector<uint8_t> buffer(maxPacketSize);
 
-    socklen_t senderLen = sizeof(senderAddress); // 发送端地址长度
-    // 接收数据包
-    
+    socklen_t senderLen = sizeof(senderAddress);  
     
     int bytesReceived = recvfrom(receiverSocket, buffer.data(), maxPacketSize, 0, (struct sockaddr *)&senderAddress, &senderLen);
     
     buffer.resize(bytesReceived);
 
-    // packet = deserializeRFTPPacket(buffer);
     if (verifyChecksum(buffer))
     {
-        // 校验成功，反序列化数据包
         packet = deserializeRFTPPacket(buffer);
         // check packet if belongs to its type
         // if type is 00000000, allow 00000000 and 00000100
@@ -217,7 +195,6 @@ bool RFTPReceiver::receivePacket(RFTPPacket &packet, uint8_t type)
     return true;
 }
 
-// 接收数据包超时
 bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
 {
     fd_set fds;
@@ -236,34 +213,29 @@ bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
     }
     else if (activity == 0)
     {
-        // 超时
         return false;
     }
     else
     {
-        // 接收数据包
         return receivePacket(packet, 0);
     }
 }
 
-// 将数据块写入文件
 void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
 {
-    file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size()); // 写入数据
-    totalBytesReceived += packet.data.size();    // 更新总接收字节数
+    file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
+    totalBytesReceived += packet.data.size(); 
 }
 
-// 发送确认包
 void RFTPReceiver::sendAck(uint32_t ackNumber, uint8_t flag)
 {
-    RFTPPacket ackPacket;              // 创建一个确认包
-    // memset(&ackPacket, 0, sizeof(ackPacket)); // 初始化确认包为 0
-    ackPacket.seqNumber = 0;     // 设置序列号为 0
-    ackPacket.ackNumber = ackNumber;   // 设置确认号
-    ackPacket.flags = flag;            // 设置 ACK 标志位
-    ackPacket.windowSize = min(rwnd, cwnd);        // 设置窗口大小
-    ackPacket.data.resize(0);             // 清空数据部分
-    ackPacket.checksum = calculateChecksum(ackPacket); // 计算校验和
+    RFTPPacket ackPacket;             
+    ackPacket.seqNumber = 0;    
+    ackPacket.ackNumber = ackNumber;  
+    ackPacket.flags = flag;          
+    ackPacket.windowSize = min(rwnd, cwnd);    
+    ackPacket.data.resize(0);    
+    ackPacket.checksum = calculateChecksum(ackPacket);
 
     // store ackPacket to buffer
     // Ack Packet size is 13 bytes
@@ -288,7 +260,6 @@ void RFTPReceiver::sendAck(uint32_t ackNumber, uint8_t flag)
     sendto(receiverSocket, buffer.data(), buffer.size(), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
 }
 
-// 计算数据包的校验和
 uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
 {
     uint32_t sum = 0;
@@ -328,12 +299,11 @@ uint16_t RFTPReceiver::calculateChecksum(const RFTPPacket &packet)
 
 uint16_t RFTPReceiver::verifyChecksum(const std::vector<uint8_t> &buffer)
 {
-    // 提取接收到的数据包中的 checksum
     uint16_t receivedChecksum = 0;
     memcpy(&receivedChecksum, buffer.data() + checksumOffset, sizeof(uint16_t));
 
     uint64_t sumX = 0;
-    const size_t windowSizeOffset = 9; // 请根据实际情况填写
+    const size_t windowSizeOffset = 9;
     sumX += buffer[windowSizeOffset] + (buffer[windowSizeOffset + 1] << 8);
 
     uint64_t sum = 0;
@@ -374,26 +344,22 @@ uint16_t RFTPReceiver::verifyChecksum(const std::vector<uint8_t> &buffer)
         }
     }
 
-    // 合并高位和低位
     while (sum >> 16)
     {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
 
-    // 计算校验和
     // uint16_t calculatedChecksum = ~sum & 0xFFFF;
 
-    // 返回是否校验通过：1 表示成功，0 表示失败
     return (sum + receivedChecksum == 0xFFFF);
 }
 
 
-// 打印传输统计信息
 void RFTPReceiver::printStatistics()
 {
-    auto endTime = std::chrono::steady_clock::now(); // 记录传输结束时间
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime); // 计算传输时长
-    double durationSec = duration.count() / 1000.0; // 将时长转换为秒
+    auto endTime = std::chrono::steady_clock::now(); 
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    double durationSec = duration.count() / 1000.0; 
 
     cout << fixed << setprecision(2);
     cout << "Total bytes received: " << totalBytesReceived << " bytes" << endl;
@@ -404,38 +370,56 @@ void RFTPReceiver::printStatistics()
 // getReceiverSocket
 int RFTPReceiver::getReceiverSocket()
 {
-    return receiverSocket; // 返回接收端套接字s
+    return receiverSocket;
 }
 
 int main(int argc, char *argv[]) {
-    int port = 18150; // 接收端端口号，初始化为 0
-
-    //解析命令行参数，仅接受 -p <port>
+    int port = 0; // Receiving port, initialized to 0
+    // Parse command-line arguments, only accepting -p <port>
     int opt;
     while ((opt = getopt(argc, argv, "p:")) != -1)
     {
         switch (opt)
         {
             case 'p':
-                port = atoi(optarg); // 将端口号字符串转换为整数
+                if (optarg != NULL)
+                {
+                    port = atoi(optarg); // Convert the port string to an integer
+                }
+                else
+                {
+                    cerr << "Option -p requires an argument." << endl;
+                    cerr << "Usage: " << argv[0] << " -p <port>" << endl;
+                    return 1;
+                }
                 break;
             default:
+                cerr << "Unknown option: -" << static_cast<char>(optopt) << endl;
                 cerr << "Usage: " << argv[0] << " -p <port>" << endl;
                 return 1;
         }
     }
-    if (port == -1)
+
+    // Check if the port number is provided
+    if (port == 0)
     {
+        cerr << "A port number must be provided." << endl;
         cerr << "Usage: " << argv[0] << " -p <port>" << endl;
         return 1;
     }
 
-    RFTPReceiver receiver;              // 创建接收端对象
-    receiver.initReceiverSocket(port);  // 初始化接收套接字
+    // Validate if the port number is within the valid range
+    if (port < 18000 || port > 18200)
+    {
+        cerr << "The port number must be between 18000 and 18200 (inclusive)." << endl;
+        return 1;
+    }
 
-    RFTPPacket packet;                  // 创建数据包对象
+    RFTPReceiver receiver;             
+    receiver.initReceiverSocket(port); 
+
+    RFTPPacket packet;                
     
-    // 接收信息包阶段
     while (true)
     {   
         struct timeval tv;
@@ -450,34 +434,27 @@ int main(int argc, char *argv[]) {
             // type of packet is 01000000(0x40)
             if (receiver.receivePacket(packet, 0x40))
             { 
-                // 解析目录名和文件名
                 std::string fileInfo(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
                 size_t slash_pos = fileInfo.find('/');
                 if (slash_pos == std::string::npos)
                 {
                     cerr << "Invalid file information format. Expected <subdir>/<filename>" << endl;
-                    continue; // 格式错误，继续接收下一个包
+                    continue; 
                 }
-                std::string subdir = fileInfo.substr(0, slash_pos);           // 提取子目录名
-                std::string filename = fileInfo.substr(slash_pos + 1);         // 提取文件名
+                std::string subdir = fileInfo.substr(0, slash_pos);          
+                std::string filename = fileInfo.substr(slash_pos + 1);     
 
-                // 打开文件进行写入，添加 ".recv" 后缀
                 if (!receiver.openFile(subdir, filename + ".recv"))
                 {
-                    return 1; // 文件打开失败，退出程序
+                    return 1; 
                 }
 
-                // 发送 ACK 确认信息包
-
-                for(int i=0; i<5; i++){
+                for(int i=0; i < infoAckNum; i++){
                     receiver.sendAck(packet.seqNumber, 0x50);
-
                 }
+
                 cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
-
-
-
-                break; // 信息包处理完毕，进入数据传输阶段
+                break; 
             
 
             }
@@ -485,11 +462,9 @@ int main(int argc, char *argv[]) {
  
     }
 
-    // 数据传输阶段
-    uint32_t expectedSeqNumber = 0;         // 期望的序列号
-    std::map<uint32_t, RFTPPacket> bufferMap; // 缓冲区，存储滑动窗口内的乱序包
-    bool lastPacketReceived = false;        // 标识是否接收到最后一个包
-    const int maxwindowsize = 8;
+    uint32_t expectedSeqNumber = 0;       
+    std::map<uint32_t, RFTPPacket> bufferMap; 
+    bool lastPacketReceived = false;     
     int wincount = 0;
     bool transmissionComplete = false;
 
@@ -514,27 +489,27 @@ int main(int argc, char *argv[]) {
                 if (packet.seqNumber == expectedSeqNumber) {
                     // Correct packet received
                     receiver.writeFileChunk(packet);
-                    cout << "[recv data] " << packet.seqNumber
+                    cout << "[recv data] " << packet.seqNumber * maxPayloadSize
                         << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
                     expectedSeqNumber++;
                     wincount++;
-                    cout << "wincount:" << wincount << endl;
+                    //cout << "wincount:" << wincount << endl;
                     if (wincount == maxwindowsize) {
                         // Window size reached, send ACK
                         if (expectedSeqNumber != 0) {
                         receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                        cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                     }
                         wincount = 0;
                     }
                 } else {
                     // Packet loss detected
-                    cout << "[recv data] " << packet.seqNumber << " "
+                    cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " "
                         << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
                     // Send ACK for the last correctly received packet
                     if (expectedSeqNumber != 0) {
                         receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                        cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                     }
                     wincount = 0;
                     continue;
@@ -544,21 +519,24 @@ int main(int argc, char *argv[]) {
                 if (packet.flags & 0x04) {
                     lastPacketReceived = true;
                     cout << "[completed]" << endl;
+
                     // Send final ACK for the last packet
                     if (expectedSeqNumber != 0) {
-                        receiver.sendAck(expectedSeqNumber - 1,0x10);
-                        cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                        for(int i=0; i < lastAckNum; i++) {
+                            receiver.sendAck(expectedSeqNumber - 1,0x10);
+                        }
+                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                     }
                     transmissionComplete = true;
                     break;
                 }
             } else {
                 // Corrupted packet detected
-                cerr << "Corrupt packet, receivePacket failed" << endl;
+                cout << "[recv corrupt packet]" << endl;
                 // Send ACK for the last correctly received packet
                 if (expectedSeqNumber != 0) {
                     receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                    cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                    //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                 }
                 wincount = 0;
                 continue;
@@ -567,15 +545,15 @@ int main(int argc, char *argv[]) {
             // Timeout occurred, resend ACK for the last correctly received packet
             if (expectedSeqNumber != 0) {
                 receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                cout << "[send ack] " << expectedSeqNumber - 1 << " (timeout)" << endl;
+                //cout << "[send ack] " << expectedSeqNumber - 1 << " (timeout)" << endl;
             }
             //else
                 //cout << " Not appliable ack, wait for sender timeout " << endl;
         }
     }
 
-    receiver.closeFile();         // 关闭文件
-    receiver.printStatistics();   // 打印传输统计信息
+    receiver.closeFile();        
+    receiver.printStatistics();   
     receiver.closeReceiverSocket();
-    return 0;                     // 正常退出程序
-}
+    return 0;
+}             
