@@ -21,7 +21,10 @@ const int rwnd = 32;
 const int cwnd = 32;
 // Timeout
 const int timeout_s = 0;
-const int timeout_ms = 1;
+const int timeout_ms = 2;
+// Timeout for information packet
+const int timeout_info_s = 1;
+const int timeout_info_ms = 0;
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -370,11 +373,11 @@ bool RFTPSender::sendInfoPacket()
             cerr << "Error: Sending Information Packet failed!" << endl;
             continue;
         }
-        // cout << "Sent information packet with filename: " << filename << endl;
+        cout << "Sent information packet with filename: " << filename << endl;
         // wait for the ACK
         struct timeval tv;
-        tv.tv_sec = timeout_s;
-        tv.tv_usec = timeout_ms * 1000;
+        tv.tv_sec = timeout_info_s;
+        tv.tv_usec = timeout_info_ms * 1000;        // convert timeout to microseconds
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(senderSocket, &fds);
