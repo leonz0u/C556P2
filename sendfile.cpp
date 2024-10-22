@@ -418,15 +418,10 @@ void RFTPSender::sendFile()
     bool finished = false;
     // load all packets in the window
     bool notLoaded = true;
-    int timeoutCount = 0;
     while (!finished)
     {
         // create the list of packets to be sent in the window
         // store the packets in the senderBuffer
-        if(seqBegin == lastSeqNumber)
-        {
-            int ixx = 1;
-        }
         while (usedSegmentSize < totalWindowSize && seqBegin <= lastSeqNumber && notLoaded)
         {
             if (remainingFileSize < maxPayloadSize)
@@ -451,7 +446,6 @@ void RFTPSender::sendFile()
                     segmentsNum = (remainingFileSize + maxPayloadSize - 1) / maxPayloadSize;
                     // set the bit 2 to 1 for the last packet
                     // bit 2 is 00000100
-                    // createSegments(seqBegin, segmentsNum, true, senderBuffer);
                     // create Segments, start from seqBegin+usedSegmentSize
                     createSegments(seqBegin+usedSegmentSize, segmentsNum, true, senderBuffer);
                     remainingFileSize = 0;
@@ -498,9 +492,6 @@ void RFTPSender::sendFile()
             seqBegin = maxAck + 1;
             // free the used window size, but keep the used segment size
             usedWindowSize = 0;
-            // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
-            // gettimeofday(&t2, NULL);
-            // tv = calculateTimeout(t1, t2);
             continue;
         }
         if(activity < 0)
@@ -538,12 +529,6 @@ void RFTPSender::sendFile()
             }
             // update the sequence number
             seqBegin = maxAck + 1;
-            // remainingFileSize = fileSize - seqBegin * maxPayloadSize;
-            // if(remainingFileSize <= 0)
-            // {
-            //     finished = true;
-            //     break;
-            // }
         }
     }
     if(finished)
@@ -563,58 +548,54 @@ int main(int argc, char *argv[])
     string subdir;
     string filename;
 
-    // int opt;
-    // while ((opt = getopt(argc, argv, "r:f:")) != -1)
-    // {
-    //     switch (opt)
-    //     {
-    //     case 'r':
-    //     {
-    //         string addr = optarg;
-    //         size_t colon_pos = addr.find(":");
-    //         if (colon_pos == std::string::npos)
-    //         {
-    //             std::cerr << "Invalid receiver address format. Expected <recv host>:<recv port>" << std::endl;
-    //             return 1;
-    //         }
-    //         recvHost = addr.substr(0, colon_pos);
-    //         recvPort = std::stoi(addr.substr(colon_pos + 1));
-    //         break;
-    //     }
-    //     case 'f':
-    //     {
-    //         string file = optarg;
-    //         size_t slash_pos = file.find("/");
-    //         if (slash_pos == std::string::npos)
-    //         {
-    //             std::cerr << "Invalid file information format. Expected <subdir>/<filename>" << std::endl;
-    //             return 1;
-    //         }
-    //         subdir = file.substr(0, slash_pos);
-    //         filename = file.substr(slash_pos + 1);
-    //         break;
-    //     }
-    //     default:
-    //         std::cerr << "Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>" << std::endl;
-    //         return 1;
-    //     }
-    // }
+    int opt;
+    while ((opt = getopt(argc, argv, "r:f:")) != -1)
+    {
+        switch (opt)
+        {
+        case 'r':
+        {
+            string addr = optarg;
+            size_t colon_pos = addr.find(":");
+            if (colon_pos == std::string::npos)
+            {
+                std::cerr << "Invalid receiver address format. Expected <recv host>:<recv port>" << std::endl;
+                return 1;
+            }
+            recvHost = addr.substr(0, colon_pos);
+            recvPort = std::stoi(addr.substr(colon_pos + 1));
+            break;
+        }
+        case 'f':
+        {
+            string file = optarg;
+            size_t slash_pos = file.find("/");
+            if (slash_pos == std::string::npos)
+            {
+                std::cerr << "Invalid file information format. Expected <subdir>/<filename>" << std::endl;
+                return 1;
+            }
+            subdir = file.substr(0, slash_pos);
+            filename = file.substr(slash_pos + 1);
+            break;
+        }
+        default:
+            std::cerr << "Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>" << std::endl;
+            return 1;
+        }
+    }
 
-
-    //for local test purpose sendfile -r 128.42.124.187:18105 -f test.txt
-    recvHost = "128.42.124.178";
-    recvPort = 18150;
-    // subdir = "send";
-    subdir = ".";
-    filename = "test_47000B.bin";
-
+    //print the receiver address and port number
+    cout << "Receiver Address: " << recvHost << endl;
+    cout << "Receiver Port: " << recvPort << endl;
+    cout << "Subdirectory: " << subdir << endl;
+    cout << "Filename: " << filename << endl;
 
     if (recvHost.empty() || recvPort == 0 || filename.empty())
     {
         std::cerr << "Usage: sendfile -r <recv host>:<recv port> -f <subdir>/<filename>" << std::endl;
         return 1;
     }
-
 
     RFTPSender sender;
     sender.initSenderSocket();
@@ -631,7 +612,6 @@ int main(int argc, char *argv[])
         cerr << "Error: Sending Information Packet failed!" << endl;
         return 1;
     }
-
 
     sender.sendFile();
     sender.closeFile();
