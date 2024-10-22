@@ -32,6 +32,7 @@
 *.app
 
 # exclude output files
+send/large/test_512MB.bin
 recv/test_1000MB.bin
 send/test_1000MB.bin
 recv/recvfile
