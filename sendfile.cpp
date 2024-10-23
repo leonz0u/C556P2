@@ -111,7 +111,7 @@ void RFTPSender::initSenderSocket()
 void RFTPSender::clearSocketBuffer(int socket)
 {
     char buffer[1472];
-    while (recv(socket, buffer, sizeof(buffer), MSG_DONTWAIT) > 0)
+    while (recvfrom(socket, buffer, sizeof(buffer), MSG_DONTWAIT, (struct sockaddr *)&receiverAddress, (socklen_t *)&receiverAddress) > 0)
     {
         // clear the buffer
     }
