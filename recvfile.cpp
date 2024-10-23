@@ -465,8 +465,8 @@ int main(int argc, char *argv[]) {
                 } else {
                     std::cout << "No directory separator found in the path." << std::endl;
                 }
-
-                if (receiver.openFile(subdir, filename + ".recv"))
+                filename = filename.substr(0, filename.find('\0'));
+                if (receiver.openFile(subdir, filename+".recv"))
                 {
                 for(int i=0; i < infoAckNum; i++){
                     receiver.sendAck(packet.seqNumber, 0x50);
