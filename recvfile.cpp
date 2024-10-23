@@ -240,11 +240,6 @@ bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
     }
 }
 
-// void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
-// {
-//     file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
-//     totalBytesReceived += packet.data.size(); 
-// }
 
 void RFTPReceiver::writeFileChunk(const uint8_t *data, int size)
 {
@@ -500,7 +495,13 @@ int main(int argc, char *argv[]) {
     bool lastPacketReceived = false;     
     int wincount = 0;
     bool transmissionComplete = false;
-    std::vector<RFTPPacket> receiveBuffer(maxwindowsize);                // Buffer to store received packets
+    // std::vector<RFTPPacket> receiveBuffer(maxwindowsize);                // Buffer to store received packets
+    std::vector<std::vector<uint8_t>> receiveBuffer(maxwindowsize);                // Buffer to store received packets
+    // initialize the buffer
+    for (int i = 0; i < maxwindowsize; i++)
+    {
+        receiveBuffer[i].resize(maxPayloadSize);
+    }
 
     while (!transmissionComplete) {
         RFTPPacket packet;
@@ -527,14 +528,11 @@ int main(int argc, char *argv[]) {
                     expectedSeqNumber++;
                     wincount++;                    
                     // save the packet data to the buffer
-                    receiveBuffer[wincount - 1].seqNumber = packet.seqNumber;
-                    receiveBuffer[wincount - 1].ackNumber = packet.ackNumber;
-                    receiveBuffer[wincount - 1].flags = packet.flags;
-                    receiveBuffer[wincount - 1].windowSize = packet.windowSize;
-                    receiveBuffer[wincount - 1].checksum = packet.checksum;
                     int packetDataSize = packet.data.size();
-                    receiveBuffer[wincount - 1].data.resize(packetDataSize);
-                    memcpy(receiveBuffer[wincount - 1].data.data(), packet.data.data(), packetDataSize);
+                    receiveBuffer[wincount - 1].resize(packetDataSize);
+
+                    // memcpy(receiveBuffer[wincount - 1].data.data(), packet.data.data(), packetDataSize);
+                    memcpy(receiveBuffer[wincount - 1].data(), packet.data.data(), packetDataSize);
                     // receiveBuffer[wincount - 1].data.data() = packet.data.data();
                     cerr << "[recv data] " << packet.seqNumber * maxPayloadSize
                         << " (" << packetDataSize << ") ACCEPTED(in-order)" << endl;
@@ -550,7 +548,7 @@ int main(int argc, char *argv[]) {
 
                         for (int i = 0; i < wincount; i++)
                         {
-                            receiver.writeFileChunk(receiveBuffer[i].data.data(), maxPayloadSize);
+                            receiver.writeFileChunk(receiveBuffer[i].data(), maxPayloadSize);
                         }
 
                         wincount = 0;
@@ -575,7 +573,7 @@ int main(int argc, char *argv[]) {
                         // Write the buffer to file if the window is not full
                         for (int i = 0; i < wincount; i++)
                         {
-                            receiver.writeFileChunk(receiveBuffer[i].data.data(), receiveBuffer[i].data.size());
+                            receiver.writeFileChunk(receiveBuffer[i].data(), receiveBuffer[i].size());
                         }
                         transmissionComplete = true;
                         break;
