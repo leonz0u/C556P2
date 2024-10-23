@@ -60,7 +60,8 @@ public:
     void closeFile();              
     bool receivePacket(RFTPPacket &packet,uint8_t type);
     bool receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec); 
-    void writeFileChunk(const RFTPPacket &packet); 
+    // void writeFileChunk(const RFTPPacket &packet);
+    void writeFileChunk(const uint8_t *data, int size);
     void sendAck(uint32_t ackNumber, uint8_t flag); 
     uint16_t calculateChecksum(const RFTPPacket &packet); 
     void printStatistics();           
@@ -239,10 +240,16 @@ bool RFTPReceiver::receivePacketWithTimeout(RFTPPacket &packet, int timeout_sec)
     }
 }
 
-void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
+// void RFTPReceiver::writeFileChunk(const RFTPPacket &packet)
+// {
+//     file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
+//     totalBytesReceived += packet.data.size(); 
+// }
+
+void RFTPReceiver::writeFileChunk(const uint8_t *data, int size)
 {
-    file.write(reinterpret_cast<const char*>(packet.data.data()), packet.data.size());
-    totalBytesReceived += packet.data.size(); 
+    file.write(reinterpret_cast<const char*>(data), size);
+    totalBytesReceived += size; 
 }
 
 void RFTPReceiver::sendAck(uint32_t ackNumber, uint8_t flag)
@@ -377,8 +384,10 @@ void RFTPReceiver::printStatistics()
 {
     auto endTime = std::chrono::steady_clock::now(); 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-    double durationSec = duration.count() / 1000.0; 
-
+    // cout duration in milliseconds
+    cout << "Duration: " << duration.count() << " milliseconds" << endl;
+    // cout duration in seconds
+    double durationSec = duration.count() / 1000.0;
     cout << fixed << setprecision(2);
     cout << "Total bytes received: " << totalBytesReceived << " bytes" << endl;
     cout << "Transfer time: " << durationSec << " seconds" << endl;
@@ -433,10 +442,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+
     RFTPReceiver receiver;             
     receiver.initReceiverSocket(port); 
 
-    RFTPPacket packet;                
     
     while (true)
     {   
@@ -444,6 +453,7 @@ int main(int argc, char *argv[]) {
         tv.tv_sec = timeout_s;
         tv.tv_usec = timeout_ms * 1000;
         int receiverSocket = receiver.getReceiverSocket();
+        RFTPPacket packet;                
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(receiverSocket, &fds);
@@ -487,12 +497,14 @@ int main(int argc, char *argv[]) {
     }
 
     uint32_t expectedSeqNumber = 0;       
-    std::map<uint32_t, RFTPPacket> bufferMap; 
     bool lastPacketReceived = false;     
     int wincount = 0;
     bool transmissionComplete = false;
+    std::vector<RFTPPacket> receiveBuffer(maxwindowsize);                // Buffer to store received packets
 
     while (!transmissionComplete) {
+        RFTPPacket packet;
+        // receive packet buffer
         struct timeval tv;
         tv.tv_sec = timeout_s;
         tv.tv_usec = timeout_ms * 1000;
@@ -512,57 +524,83 @@ int main(int argc, char *argv[]) {
 
                 if (packet.seqNumber == expectedSeqNumber) {
                     // Correct packet received
-                    receiver.writeFileChunk(packet);
-                    cerr << "[recv data] " << packet.seqNumber * maxPayloadSize
-                        << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
                     expectedSeqNumber++;
-                    wincount++;
+                    wincount++;                    
+                    // save the packet data to the buffer
+                    receiveBuffer[wincount - 1].seqNumber = packet.seqNumber;
+                    receiveBuffer[wincount - 1].ackNumber = packet.ackNumber;
+                    receiveBuffer[wincount - 1].flags = packet.flags;
+                    receiveBuffer[wincount - 1].windowSize = packet.windowSize;
+                    receiveBuffer[wincount - 1].checksum = packet.checksum;
+                    int packetDataSize = packet.data.size();
+                    receiveBuffer[wincount - 1].data.resize(packetDataSize);
+                    memcpy(receiveBuffer[wincount - 1].data.data(), packet.data.data(), packetDataSize);
+                    // receiveBuffer[wincount - 1].data.data() = packet.data.data();
+                    cerr << "[recv data] " << packet.seqNumber * maxPayloadSize
+                        << " (" << packetDataSize << ") ACCEPTED(in-order)" << endl;
                     //cout << "wincount:" << wincount << endl;
-                    if (wincount == maxwindowsize) {
-                        // Window size reached, send ACK
-                        if (expectedSeqNumber != 0) {
-                        receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
-                    }
+                    if (wincount == maxwindowsize)
+                    {
+                        if (expectedSeqNumber != 0)
+                        {
+                            // Window size reached, send ACK
+                            receiver.sendAck(expectedSeqNumber - 1, 0x10);
+                            // write the buffer to file
+                        }
+
+                        for (int i = 0; i < wincount; i++)
+                        {
+                            receiver.writeFileChunk(receiveBuffer[i].data.data(), maxPayloadSize);
+                        }
+
                         wincount = 0;
+                    }
+
+                    // Check if it's the last packet
+                    if (packet.flags & 0x04)
+                    {
+                        lastPacketReceived = true;
+                        cout << "[completed]" << endl;
+
+                        // Send final ACK for the last packet
+                        if (expectedSeqNumber != 0)
+                        {
+                            for (int i = 0; i < lastAckNum; i++)
+                            {
+                                receiver.sendAck(expectedSeqNumber - 1, 0x10);
+                            }
+                            // cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                        }
+
+                        // Write the buffer to file if the window is not full
+                        for (int i = 0; i < wincount; i++)
+                        {
+                            receiver.writeFileChunk(receiveBuffer[i].data.data(), receiveBuffer[i].data.size());
+                        }
+                        transmissionComplete = true;
+                        break;
                     }
                 } else {
                     // Packet loss detected
                     cerr << "[recv data] " << packet.seqNumber * maxPayloadSize << " "
                         << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
                     // Send ACK for the last correctly received packet
-                    if (expectedSeqNumber != 0) {
-                        receiver.sendAck(expectedSeqNumber - 1, 0x10);
-                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
-                    }
-                    wincount = 0;
+                    // if (expectedSeqNumber != 0) {
+                    //     receiver.sendAck(expectedSeqNumber - 1, 0x10);
+                    //     //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
+                    // }
+                    // wincount = 0;
                     continue;
-                }
-
-                // Check if it's the last packet
-                if (packet.flags & 0x04) {
-                    lastPacketReceived = true;
-                    cout << "[completed]" << endl;
-
-                    // Send final ACK for the last packet
-                    if (expectedSeqNumber != 0) {
-                        for(int i=0; i < lastAckNum; i++) {
-                            receiver.sendAck(expectedSeqNumber - 1,0x10);
-                        }
-                        //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
-                    }
-                    transmissionComplete = true;
-                    break;
                 }
             } else {
                 // Corrupted packet detected
                 cerr << "[recv corrupt packet]" << endl;
                 // Send ACK for the last correctly received packet
                 if (expectedSeqNumber != 0) {
-                    receiver.sendAck(expectedSeqNumber - 1, 0x10);
+                    // receiver.sendAck(expectedSeqNumber - 1, 0x10);
                     //cout << "[send ack] " << expectedSeqNumber - 1 << endl;
                 }
-                wincount = 0;
+                // wincount = 0;
                 continue;
             }
         } else {
@@ -576,8 +614,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    receiver.closeFile();        
     receiver.printStatistics();   
+    receiver.closeFile();        
     receiver.closeReceiverSocket();
     return 0;
 }             
