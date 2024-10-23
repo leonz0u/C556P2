@@ -209,20 +209,20 @@ bool RFTPReceiver::receivePacket(RFTPPacket &packet, uint8_t type)
             return true;
         }
         else{
-            std::cerr << "Packet type mismatch!, but checksum is correct" << std::endl;
+            // std::cerr << "Packet type mismatch!, but checksum is correct" << std::endl;
             return false;
         }
         
     }
     else
     {
-        std::cerr << "Checksum mismatch, packet corrupted!" << std::endl;
+        // std::cerr << "Checksum mismatch, packet corrupted!" << std::endl;
         return false;
     }
 
     if (bytesReceived < 0)
     {
-        cerr << "Error: Receiving Packet failed!" << endl;
+        // cerr << "Error: Receiving Packet failed!" << endl;
         return false;
     }
     return true;

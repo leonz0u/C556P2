@@ -45,24 +45,22 @@ Our RFTP (Reliable File Transfer Protocol) packet structure consists of:
 - **Data Payload**: Variable length data (max 1450 bytes)
 
 ### Protocol Features
+
 1. **Sliding Window Implementation**
    - Window Size: 32 packets
-   - Dynamic window adjustment based on network conditions
+   - Dynamic window adjustment based on network conditions 
    - Supports both in-order and out-of-order packet processing
+   - Supports large file transfer (no less than 4GB)
+   - ACK aggregation: sends only the largest ACK when multiple ACKs pending
 
 2. **Reliability Mechanisms**
    - Checksums for error detection
-   - Selective acknowledgment
+   - Selective acknowledgment  
    - Timeout-based retransmission
    - Duplicate packet detection
    - Packet reordering handling
 
-3. **Flow Control**
-   - Receiver window (rwnd) of 32 packets
-   - Congestion window (cwnd) of 32 packets
-   - Window size adjustment based on network conditions
-
-4. **Error Handling**
+3. **Error Handling**
    - Corrupted packet detection and rejection
    - Lost packet recovery through retransmission
    - Handling of duplicate packets
@@ -96,6 +94,64 @@ Example:
 ```bash
 ./sendfile -r 127.0.0.1:18000 -f ./test_500B.bin
 ```
+
+
+
+## Performance Testing Environment
+
+### Test Setup
+
+- Sender: rice look server
+- Receiver: rice clear server
+
+### Network Conditions
+We measured UDP packet RTT using ping command with following parameters:
+
+```bash
+ping -c 16 -s 1480 128.42.124.178
+```
+
+### RTT Statistics
+
+- Packets transmitted: 16
+- Packets received: 16 
+- Packet loss: 0%
+- Test duration: 15000ms
+- RTT metrics:
+  - Minimum: 0.269ms
+  - Average: 0.347ms
+  - Maximum: 0.440ms
+  - Standard deviation: 0.058ms
+
+## Parameter Settings
+
+### Network Conditions
+
+- Link Speed: 1000Mbps (125MB/s)
+- Average RTT: 0.35ms
+
+### Packet Configuration
+
+- Maximum Packet Size: 1500 bytes
+
+### Window Size Calculation
+The minimum window size (n) is calculated based on bandwidth-delay product:
+
+```
+Required Buffer = Link Speed × RTT
+                = 125MB/s × 0.35ms
+                = 43750 bytes
+
+Minimum Window Size = Required Buffer / Packet Size
+                    = 43750 / 1500
+                    ≈ 30 packets
+```
+
+### Protocol Parameters
+
+- Window Size: 32 packets (configured above minimum for optimal performance)
+- Timeout: 2ms (≈6×RTT, providing margin for network jitter)
+- Base RTT: 0.35ms
 
 ## Performance Testing Results
 
