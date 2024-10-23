@@ -472,7 +472,7 @@ int main(int argc, char *argv[]) {
                     receiver.sendAck(packet.seqNumber, 0x50);
                 }
 
-                cout << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
+                cerr << "[recv data] 0 (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
                 break;               
               }
               else{
@@ -512,7 +512,7 @@ int main(int argc, char *argv[]) {
                 if (packet.seqNumber == expectedSeqNumber) {
                     // Correct packet received
                     receiver.writeFileChunk(packet);
-                    cout << "[recv data] " << packet.seqNumber * maxPayloadSize
+                    cerr << "[recv data] " << packet.seqNumber * maxPayloadSize
                         << " (" << packet.data.size() << ") ACCEPTED(in-order)" << endl;
                     expectedSeqNumber++;
                     wincount++;
@@ -527,7 +527,7 @@ int main(int argc, char *argv[]) {
                     }
                 } else {
                     // Packet loss detected
-                    cout << "[recv data] " << packet.seqNumber * maxPayloadSize << " "
+                    cerr << "[recv data] " << packet.seqNumber * maxPayloadSize << " "
                         << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ") IGNORED" << endl;
                     // Send ACK for the last correctly received packet
                     if (expectedSeqNumber != 0) {
@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
                 }
             } else {
                 // Corrupted packet detected
-                cout << "[recv corrupt packet]" << endl;
+                cerr << "[recv corrupt packet]" << endl;
                 // Send ACK for the last correctly received packet
                 if (expectedSeqNumber != 0) {
                     receiver.sendAck(expectedSeqNumber - 1, 0x10);

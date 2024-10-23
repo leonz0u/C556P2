@@ -231,7 +231,7 @@ bool RFTPSender::sendPacket(RFTPPacket &packet)
     }
     // When sendfile sends a packet (including retransmission), it should print the following: [send data] start (length)
     // where start is the beginning offset (in byte) of the file sent in the packet, and length (in byte) is the amount of the file sent in that packet.
-    cout << "[send data] start " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ")" << endl;
+    cerr << "[send data] start " << packet.seqNumber * maxPayloadSize << " (" << packet.data.size() << ")" << endl;
     return true;
 }
 
@@ -373,7 +373,7 @@ bool RFTPSender::sendInfoPacket()
             cerr << "Error: Sending Information Packet failed!" << endl;
             continue;
         }
-        cout << "Sent information packet with filename: " << filename << endl;
+        cerr << "Sent information packet with filename: " << filename << endl;
         // wait for the ACK
         struct timeval tv;
         tv.tv_sec = timeout_info_s;
