@@ -4,8 +4,8 @@
 RECV_PORT="18105"
 
 # File path configuration
-SEND_DIR="/storage-home/z/zx55/project2/send"
-RECV_DIR="/storage-home/z/zx55/project2/recv"
+SEND_DIR="/storage-home/c/cz76/comp556/C556P2/send"
+RECV_DIR="/storage-home/c/cz76/comp556/C556P2/recv"
 MD5_LOG_FILE="${RECV_DIR}/md5sum_results.log"
 
 # Infinite loop to automatically restart recvfile

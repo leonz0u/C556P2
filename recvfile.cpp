@@ -25,8 +25,8 @@ const int timeout_s = 0;
 const int timeout_ms = 2;
 const int maxPacketSize = 1472;
 const int checksumOffset = 11;
-const int infoAckNum = 4;
-const int lastAckNum = 4;
+const int infoAckNum = 8;
+const int lastAckNum = 8;
 const int maxwindowsize = 32;
 // Size of Packet Field
 const int seqNum_Size = sizeof(uint32_t);

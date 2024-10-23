@@ -1,10 +1,10 @@
 #!/bin/bash
 # Target receiver's IP address and port
-RECV_IP="128.42.124.187"
+RECV_IP="128.42.124.178"
 RECV_PORT="18105"
 
 # Directory for sending files (script's relative path is send directory)
-cd /local/zx55comp429/project2/send
+/local/zz123comp429/C556P2/send
 
 # List of netsim parameter combinations
 NETSIM_PARAMS=(
