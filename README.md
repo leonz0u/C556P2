@@ -18,6 +18,8 @@ PROJECT2/
 │   ├── test_500B.bin      # Test file (500 bytes)
 │   ├── test_11600B.bin    # Test file (11.6 KB)
 │   ├── test_47000B.bin    # Test file (47 KB)
+│   ├── test_94000B.bin    # Test file (94 KB)
+│   ├── test_376000B.bin   # Test file (376 KB)
 │   ├── test_24MB.bin      # Test file (24 MB)
 │   └── test_64MB.bin      # Test file (64 MB)
 ├── .gitignore             
@@ -97,7 +99,7 @@ Example:
 
 ## Performance Testing Results
 
-This testing involved the use of two scripts: `auto_send.sh` for automatically sending files under different `netsim` parameters and another for `auto_recv.sh` for automatically restarting the receiver after each transfer. This part details the results of testing file transfers under different network conditions using `netsim` parameters. We used five test files of varying sizes, ranging from 500 bytes to 64 MB, and tested them under two distinct sets of network conditions. The purpose of this test was to evaluate the impact of network characteristics such as delay, packet drop rate, reorder, mangle, and duplication on file transfer performance, specifically focusing on transfer time and throughput.
+This testing involved the use of two scripts: `auto_send.sh` for automatically sending files under different `netsim` parameters and another for `auto_recv.sh` for automatically restarting the receiver after each transfer. This part details the results of testing file transfers under different network conditions using `netsim` parameters. Additionally, we conducted a baseline test with no netsim parameters set (all set to 0) to observe the optimal transfer conditions without any artificial network interference. We used five test files of varying sizes, ranging from 500 bytes to 64 MB, and tested them under two distinct sets of network conditions. The purpose of this test was to evaluate the impact of network characteristics such as delay, packet drop rate, reorder, mangle, and duplication on file transfer performance, specifically focusing on transfer time and throughput.
 
 ### Test Files
 
@@ -130,6 +132,16 @@ Two sets of `netsim` parameters were used during testing:
    - Duplicate: 25%
 
 ### Results
+
+### Test Results with Default Netsim Parameters (All Set to 0)
+
+| File              | Total Bytes Received | Transfer Time (s) | Throughput (Mbps) |
+|-------------------|----------------------|-------------------|-------------------|
+| `test_500B.bin`   | 500 bytes            | 0.000368          | 10.869            |
+| `test_11600B.bin` | 11,600 bytes         | 0.000675          | 137.481           |
+| `test_47000B.bin` | 47,000 bytes         | 0.002214          | 169.82            |
+| `test_24MB.bin`   | 24 MB                | 1.21              | 166.94            |
+| `test_64MB.bin`   | 64 MB                | 3.03              | 177.24            |
 
 #### Test Results for Netsim Parameters Set 1
 

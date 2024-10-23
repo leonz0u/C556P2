@@ -392,12 +392,14 @@ uint16_t RFTPReceiver::verifyChecksum(const std::vector<uint8_t> &buffer)
 void RFTPReceiver::printStatistics()
 {
     auto endTime = std::chrono::steady_clock::now(); 
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-    // cout duration in milliseconds
-    cout << "Duration: " << duration.count() << " milliseconds" << endl;
-    // cout duration in seconds
-    double durationSec = duration.count() / 1000.0;
-    cout << fixed << setprecision(2);
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime); // 使用微秒以获得更高精度
+    // cout duration in microseconds
+    cout << "Duration: " << duration.count() << " microseconds" << endl;
+    
+    // cout duration in seconds with protection against zero
+    double durationSec = std::max(duration.count() / 1000000.0, 0.000001); // 确保最小1微秒
+    
+    cout << fixed << setprecision(6); // 增加到6位小数
     cout << "Total bytes received: " << totalBytesReceived << " bytes" << endl;
     cout << "Transfer time: " << durationSec << " seconds" << endl;
     cout << "Throughput: " << (totalBytesReceived * 8.0 / 1000000.0) / durationSec << " Mbps" << endl;
