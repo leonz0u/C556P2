@@ -22,10 +22,11 @@ while true; do
     if [ $? -eq 0 ]; then
         echo "recvfile exited normally. Restarting to wait for next file..." | tee -a $LOG_FILE
 
-        # Find the most recently received file (assuming filename starts with test_ and ends with .bin)
-        RECEIVED_FILE=$(ls ${RECV_DIR}/test_*.bin | tail -n 1)
+        # Find the most recently received file (now with .recv suffix)
+        RECEIVED_FILE=$(ls ${RECV_DIR}/test_*.bin.recv | tail -n 1)
         if [ -f "$RECEIVED_FILE" ]; then
-            ORIGINAL_FILE="${SEND_DIR}/$(basename $RECEIVED_FILE)"  # Get path of original file
+            # Get path of original file by removing .recv suffix
+            ORIGINAL_FILE="${SEND_DIR}/$(basename $RECEIVED_FILE .recv)"
 
             # Check if original file exists and perform MD5 verification
             if [ -f "$ORIGINAL_FILE" ]; then

@@ -112,7 +112,8 @@ bool RFTPReceiver::openFile(const std::string &subPath, const std::string &filen
     // std::string mkdirCommand = "mkdir -p ./recv/" + subPath;
 
     // build mode
-    std::string fullPath = "./" + subPath + "/" + filename; 
+    std::string file_name = filename;
+    std::string fullPath = "./" + subPath + "/" + file_name + ".recv"; 
     std::string mkdirCommand = "mkdir -p ./" + subPath;
 
     system(mkdirCommand.c_str());
@@ -466,7 +467,7 @@ int main(int argc, char *argv[]) {
                     std::cout << "No directory separator found in the path." << std::endl;
                 }
                 filename = filename.substr(0, filename.find('\0'));
-                if (receiver.openFile(subdir, filename+".recv"))
+                if (receiver.openFile(subdir, filename))
                 {
                 for(int i=0; i < infoAckNum; i++){
                     receiver.sendAck(packet.seqNumber, 0x50);
