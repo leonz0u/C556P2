@@ -242,7 +242,7 @@ void RFTPSender::createInfoPacket(RFTPPacket &packet)
     packet.ackNumber = 0;
     // set the bit 6 to 1
     // bit 6 is 01000000
-    packet.flags |= 0x40;
+    packet.flags = 0x40;
     packet.windowSize = 8;
     // copy the subdir and filename to the data field
     std::string filename = subdir + "/" + this->filename;
