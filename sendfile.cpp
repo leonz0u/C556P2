@@ -14,7 +14,7 @@
 using namespace std;
 
 // Global variables for test
-const int maxPayloadSize = 1450;
+const int maxPayloadSize = 1458;
 // Receiver window size
 const int rwnd = 32;
 // Congestion window size
@@ -23,8 +23,14 @@ const int cwnd = 32;
 const int timeout_s = 0;
 const int timeout_ms = 2;
 // Timeout for information packet
-const int timeout_info_s = 1;
-const int timeout_info_ms = 0;
+const int timeout_info_s = 0;
+const int timeout_info_ms = 100;
+// Size of Packet Field
+const int seqNum_Size = sizeof(uint32_t);
+const int ackNum_Size = sizeof(uint32_t);
+const int flags_Size = sizeof(uint8_t);
+const int windowSize_Size = sizeof(uint16_t);
+const int checksum_Size = sizeof(uint16_t);
 
 // Structure for the RFTP packet
 struct RFTPPacket
@@ -204,16 +210,17 @@ std::vector<uint8_t> RFTPSender::serializePacket(const RFTPPacket& packet)
     int bufferSize = sizeof(packet.seqNumber) + sizeof(packet.ackNumber) + sizeof(packet.flags) + sizeof(packet.windowSize) + sizeof(packet.checksum) + packet.data.size();
     std::vector<uint8_t> buffer(bufferSize);
     size_t offset = 0;
-    memcpy(buffer.data() + offset, &packet.seqNumber, sizeof(packet.seqNumber));
-    offset += sizeof(packet.seqNumber);
-    memcpy(buffer.data() + offset, &packet.ackNumber, sizeof(packet.ackNumber));
-    offset += sizeof(packet.ackNumber);
-    memcpy(buffer.data() + offset, &packet.flags, sizeof(packet.flags));
-    offset += sizeof(packet.flags);
-    memcpy(buffer.data() + offset, &packet.windowSize, sizeof(packet.windowSize));
-    offset += sizeof(packet.windowSize);
-    memcpy(buffer.data() + offset, &packet.checksum, sizeof(packet.checksum));
-    offset += sizeof(packet.checksum);
+    // memcpy(buffer.data() + offset, &packet.seqNumber, sizeof(packet.seqNumber));
+    memcpy(buffer.data() + offset, &packet.seqNumber, seqNum_Size);
+    offset += seqNum_Size;
+    memcpy(buffer.data() + offset, &packet.ackNumber, ackNum_Size);
+    offset += ackNum_Size;
+    memcpy(buffer.data() + offset, &packet.flags, flags_Size);
+    offset += flags_Size;
+    memcpy(buffer.data() + offset, &packet.windowSize, windowSize_Size);
+    offset += windowSize_Size;
+    memcpy(buffer.data() + offset, &packet.checksum, checksum_Size);
+    offset += checksum_Size;
     memcpy(buffer.data() + offset, packet.data.data(), packet.data.size());
     return buffer;
 }

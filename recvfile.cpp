@@ -18,7 +18,7 @@
 
 using namespace std;
 
-const int maxPayloadSize = 1450;
+const int maxPayloadSize = 1458;
 const int rwnd = 32;              
 const int cwnd = 32;
 const int timeout_s = 0;
@@ -28,6 +28,12 @@ const int checksumOffset = 11;
 const int infoAckNum = 4;
 const int lastAckNum = 4;
 const int maxwindowsize = 32;
+// Size of Packet Field
+const int seqNum_Size = sizeof(uint32_t);
+const int ackNum_Size = sizeof(uint32_t);
+const int flags_Size = sizeof(uint8_t);
+const int windowSize_Size = sizeof(uint16_t);
+const int checksum_Size = sizeof(uint16_t);
 
 struct RFTPPacket
 {
@@ -134,20 +140,19 @@ RFTPPacket deserializeRFTPPacket(const std::vector<uint8_t>& buffer) {
     RFTPPacket packet;
     size_t offset = 0;
 
-    std::memcpy(&packet.seqNumber, buffer.data() + offset, sizeof(packet.seqNumber));
-    offset += sizeof(packet.seqNumber);
-
-    std::memcpy(&packet.ackNumber, buffer.data() + offset, sizeof(packet.ackNumber));
-    offset += sizeof(packet.ackNumber);
+    std::memcpy(&packet.seqNumber, buffer.data() + offset, seqNum_Size);
+    offset += seqNum_Size;
+    std::memcpy(&packet.ackNumber, buffer.data() + offset, ackNum_Size);
+    offset += ackNum_Size;
 
     packet.flags = buffer[offset];
-    offset += sizeof(packet.flags);
+    offset += flags_Size;
 
-    std::memcpy(&packet.windowSize, buffer.data() + offset, sizeof(packet.windowSize));
-    offset += sizeof(packet.windowSize);
+    std::memcpy(&packet.windowSize, buffer.data() + offset, windowSize_Size);
+    offset += windowSize_Size;
 
-    std::memcpy(&packet.checksum, buffer.data() + offset, sizeof(packet.checksum));
-    offset += sizeof(packet.checksum);
+    std::memcpy(&packet.checksum, buffer.data() + offset, checksum_Size);
+    offset += checksum_Size;
 
     packet.data.resize(buffer.size() - offset);
     std::memcpy(packet.data.data(), buffer.data() + offset, packet.data.size());
@@ -262,19 +267,19 @@ void RFTPReceiver::sendAck(uint32_t ackNumber, uint8_t flag)
     std::vector<uint8_t> buffer(13);
     size_t offset = 0;
     // Add seqNumber to buffer
-    std::memcpy(buffer.data() + offset, &ackPacket.seqNumber, sizeof(ackPacket.seqNumber));
-    offset += sizeof(ackPacket.seqNumber);
+    std::memcpy(buffer.data() + offset, &ackPacket.seqNumber, seqNum_Size);
+    offset += seqNum_Size;
     // Add ackNumber to buffer
-    std::memcpy(buffer.data() + offset, &ackPacket.ackNumber, sizeof(ackPacket.ackNumber));
-    offset += sizeof(ackPacket.ackNumber);
+    std::memcpy(buffer.data() + offset, &ackPacket.ackNumber, ackNum_Size);
+    offset += ackNum_Size;
     // Add flags to buffer
-    std::memcpy(buffer.data() + offset, &ackPacket.flags, sizeof(ackPacket.flags));
-    offset += sizeof(ackPacket.flags);
+    std::memcpy(buffer.data() + offset, &ackPacket.flags, flags_Size);
+    offset += flags_Size;
     // Add windowSize to buffer
-    std::memcpy(buffer.data() + offset, &ackPacket.windowSize, sizeof(ackPacket.windowSize));
-    offset += sizeof(ackPacket.windowSize);
+    std::memcpy(buffer.data() + offset, &ackPacket.windowSize, windowSize_Size);
+    offset += windowSize_Size;
     // Add checksum to buffer
-    std::memcpy(buffer.data() + offset, &ackPacket.checksum, sizeof(ackPacket.checksum));
+    std::memcpy(buffer.data() + offset, &ackPacket.checksum, checksum_Size);
 
     // send buffer to sender
     sendto(receiverSocket, buffer.data(), buffer.size(), 0, (struct sockaddr *)&senderAddress, sizeof(senderAddress));
